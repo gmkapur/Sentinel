@@ -212,6 +212,54 @@ export function generateFallbackNarrationScript(
 }
 
 // ---------------------------------------------------------------------------
+// Streaming generation — yields text tokens as Claude emits them
+// ---------------------------------------------------------------------------
+
+export async function* streamNarrationTokens(
+    req: NarrationRequest,
+    risk: RiskState | null,
+    weather: SpaceWeatherState | null,
+    flares: DONKIFlare[],
+    cmes: DONKICME[],
+    neos: NEOObject[],
+    topRisk: SatRiskSummary[],
+    conjunctions: ConjunctionEvent[],
+): AsyncGenerator<string, void, unknown> {
+    const anthropic = getClient();
+    if (!anthropic) {
+        log.info({ objectId: req.objectId }, 'No ANTHROPIC_API_KEY — streaming fallback narration');
+        const fallback = generateFallbackNarrationScript(req, risk);
+        yield fallback.script;
+        return;
+    }
+
+    try {
+        const userPrompt = buildNarrationContext(req, risk, weather, flares, cmes, neos, topRisk, conjunctions);
+        const stream = anthropic.messages.stream({
+            model: MODEL,
+            max_tokens: 800,
+            system: SYSTEM_PROMPTS[req.objectType],
+            messages: [{ role: 'user', content: userPrompt }],
+        });
+
+        for await (const event of stream) {
+            if (
+                event.type === 'content_block_delta' &&
+                event.delta.type === 'text_delta' &&
+                event.delta.text
+            ) {
+                yield event.delta.text;
+            }
+        }
+    } catch (error) {
+        const msg = error instanceof Error ? error.message : String(error);
+        log.error({ err: msg }, 'Claude streaming narration failed, yielding fallback');
+        const fallback = generateFallbackNarrationScript(req, risk);
+        yield fallback.script;
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Main generation function
 // ---------------------------------------------------------------------------
 

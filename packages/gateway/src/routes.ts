@@ -639,6 +639,108 @@ export function createRouter(
     );
 
     // -----------------------------------------------------------------------
+    // POST /api/v1/narrate/stream — SSE-proxy Claude token stream from agent
+    // -----------------------------------------------------------------------
+    router.post('/api/v1/narrate/stream', async (req: Request, res: Response) => {
+        const now = Date.now();
+        if (now - lastNarrationAt < NARRATION_COOLDOWN_MS) {
+            res.status(429).json({ error: 'Too many narration requests — wait a moment' });
+            return;
+        }
+
+        const parsed = narrationRequestBodySchema.safeParse(req.body);
+        if (!parsed.success) {
+            res.status(400).json({ error: 'Invalid request body' });
+            return;
+        }
+
+        lastNarrationAt = now;
+
+        try {
+            const agentStream = await axios.post(
+                `${AGENT_URL}/narrate/stream`,
+                req.body,
+                {
+                    responseType: 'stream',
+                    timeout: 35_000,
+                    headers: { 'Content-Type': 'application/json' },
+                },
+            );
+
+            res.setHeader('Content-Type', 'text/event-stream');
+            res.setHeader('Cache-Control', 'no-cache');
+            res.setHeader('Connection', 'keep-alive');
+            res.setHeader('X-Accel-Buffering', 'no');
+
+            (agentStream.data as NodeJS.ReadableStream).pipe(res);
+            (agentStream.data as NodeJS.ReadableStream).on('error', (err: Error) => {
+                routeLog.error({ err: err.message }, 'Narration SSE proxy error');
+                if (!res.headersSent) res.status(502).json({ error: 'Stream proxy error' });
+                else res.end();
+            });
+        } catch (err: unknown) {
+            const axiosErr = err as { message?: string };
+            routeLog.error({ err: axiosErr.message }, 'Narration stream proxy failed');
+            if (!res.headersSent) res.status(502).json({ error: 'Stream proxy failed' });
+        }
+    });
+
+    // -----------------------------------------------------------------------
+    // POST /api/v1/narrate/audio — TTS a pre-generated script via ElevenLabs
+    // -----------------------------------------------------------------------
+    router.post('/api/v1/narrate/audio', async (req: Request, res: Response) => {
+        const { script } = req.body as { script?: string };
+        if (!script || typeof script !== 'string' || script.trim().length === 0) {
+            res.status(400).json({ error: 'Missing or empty script' });
+            return;
+        }
+
+        const elevenLabsKey   = process.env.ELEVENLABS_API_KEY;
+        const elevenLabsVoice = process.env.ELEVENLABS_VOICE_ID;
+
+        if (!elevenLabsKey || !elevenLabsVoice) {
+            res.status(503).json({ error: 'TTS not configured' });
+            return;
+        }
+
+        try {
+            const ttsResponse = await axios.post(
+                `https://api.elevenlabs.io/v1/text-to-speech/${elevenLabsVoice}/stream`,
+                {
+                    text: script,
+                    model_id: 'eleven_turbo_v2_5',
+                    output_format: 'mp3_44100_128',
+                },
+                {
+                    headers: {
+                        'xi-api-key': elevenLabsKey,
+                        'Content-Type': 'application/json',
+                        Accept: 'audio/mpeg',
+                    },
+                    responseType: 'stream',
+                    timeout: 30_000,
+                },
+            );
+
+            res.setHeader('Content-Type', 'audio/mpeg');
+            res.setHeader('Transfer-Encoding', 'chunked');
+            res.setHeader('Cache-Control', 'no-cache');
+
+            (ttsResponse.data as NodeJS.ReadableStream).pipe(res);
+            (ttsResponse.data as NodeJS.ReadableStream).on('error', (err: Error) => {
+                routeLog.error({ err: err.message }, 'ElevenLabs audio stream error');
+                if (!res.headersSent) res.status(502).json({ error: 'TTS stream error' });
+                else res.end();
+            });
+        } catch (err: unknown) {
+            const axiosErr = err as { response?: { data?: { detail?: string } }; message?: string };
+            const message = axiosErr.response?.data?.detail ?? axiosErr.message ?? 'Unknown error';
+            routeLog.error({ err: message }, 'ElevenLabs audio request failed');
+            if (!res.headersSent) res.status(502).json({ error: `TTS failed: ${message}` });
+        }
+    });
+
+    // -----------------------------------------------------------------------
     // POST /api/v1/narrate — generate + stream TTS for a clicked globe object
     // -----------------------------------------------------------------------
     router.post('/api/v1/narrate', async (req: Request, res: Response) => {

@@ -114,6 +114,24 @@ export const api = {
             signal,
         }),
 
+    /** Returns a raw Response whose body is an SSE text/event-stream of narration tokens. */
+    narrateStream: (req: NarrationRequest, signal?: AbortSignal): Promise<Response> =>
+        fetch('/api/v1/narrate/stream', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(req),
+            signal,
+        }),
+
+    /** Returns a raw Response whose body is a streaming audio/mpeg from a pre-generated script. */
+    narrateAudio: (script: string, signal?: AbortSignal): Promise<Response> =>
+        fetch('/api/v1/narrate/audio', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ script }),
+            signal,
+        }),
+
     postCall: async (body: { to?: string; test?: boolean }) => {
         const res = await fetch('/api/v1/agent/test-call', {
             method: 'POST',

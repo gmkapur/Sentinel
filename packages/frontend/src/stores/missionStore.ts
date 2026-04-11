@@ -354,6 +354,7 @@ interface MissionStore {
     setCmeSatellitesRed: (v: boolean) => void;
     setCmeSatellitesWhiteFlash: (v: boolean) => void;
     beginAgentSpeech: (text: string) => void;
+    appendAgentSpeechToken: (token: string) => void;
     setAgentSpeechRevealEnd: (n: number) => void;
     endAgentSpeech: () => void;
     setGlobeViewMode: (m: GlobeViewMode) => void;
@@ -670,6 +671,11 @@ export const useMissionStore = create<MissionStore>((set, get) => ({
         set({
             agentSpeechTarget: text,
             agentSpeechRevealEnd: 0,
+        }),
+    appendAgentSpeechToken: (token) =>
+        set((s) => {
+            const newTarget = s.agentSpeechTarget + token;
+            return { agentSpeechTarget: newTarget, agentSpeechRevealEnd: newTarget.length };
         }),
     setAgentSpeechRevealEnd: (n) =>
         set((s) => {

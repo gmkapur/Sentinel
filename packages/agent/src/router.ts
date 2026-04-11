@@ -18,7 +18,7 @@ import {
 } from './dataCache';
 import { evaluate } from './riskEngine';
 import { generateBrief, generateFallbackBrief } from './llmBrief';
-import { generateNarrationScript, generateFallbackNarrationScript } from './narrationBrief';
+import { generateNarrationScript, generateFallbackNarrationScript, streamNarrationTokens } from './narrationBrief';
 import {
     getCallHistory,
     loadAlertConfig,
@@ -391,6 +391,77 @@ router.post('/narrate', async (req, res) => {
         log.error({ err: msg }, 'Narration script generation failed, returning fallback');
         const fallback = generateFallbackNarrationScript(narReq, null);
         res.json(fallback);
+    }
+});
+
+// ---------------------------------------------------------------------------
+// POST /narrate/stream — SSE stream of narration tokens as Claude generates them
+// ---------------------------------------------------------------------------
+
+router.post('/narrate/stream', async (req, res) => {
+    const parsed = narrationRequestSchema.safeParse(req.body);
+    if (!parsed.success) {
+        res.status(400).json({ error: 'Invalid narration request' });
+        return;
+    }
+    const narReq: NarrationRequest = parsed.data;
+
+    try {
+        const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+        const [risk, flares, cmes, neos] = await Promise.all([
+            getLatestRisk(),
+            getRecentFlares(thirtyDaysAgo),
+            getRecentCMEs(thirtyDaysAgo),
+            getUpcomingNeos(7),
+        ]);
+        const weather = await buildSpaceWeatherState();
+
+        const GATEWAY_URL = process.env.GATEWAY_URL || 'http://localhost:3001';
+        const INTERNAL_SECRET = process.env.INTERNAL_SECRET || '';
+        let topRisk: SatRiskSummary[] = [];
+        let conjunctions: ConjunctionEvent[] = [];
+        try {
+            const [trRes, cjRes] = await Promise.all([
+                axios.get(`${GATEWAY_URL}/internal/top-risk-satellites`, {
+                    headers: { 'x-internal-secret': INTERNAL_SECRET },
+                    timeout: 3000,
+                }),
+                axios.get(`${GATEWAY_URL}/internal/active-conjunctions`, {
+                    headers: { 'x-internal-secret': INTERNAL_SECRET },
+                    timeout: 3000,
+                }),
+            ]);
+            topRisk = (trRes.data.satellites ?? []) as SatRiskSummary[];
+            conjunctions = (cjRes.data.conjunctions ?? []) as ConjunctionEvent[];
+        } catch { /* best-effort */ }
+
+        res.setHeader('Content-Type', 'text/event-stream');
+        res.setHeader('Cache-Control', 'no-cache');
+        res.setHeader('Connection', 'keep-alive');
+        res.setHeader('X-Accel-Buffering', 'no');
+        res.flushHeaders();
+
+        let fullScript = '';
+        for await (const token of streamNarrationTokens(
+            narReq, risk, weather, flares, cmes, neos, topRisk, conjunctions,
+        )) {
+            fullScript += token;
+            res.write(`data: ${JSON.stringify({ token })}\n\n`);
+        }
+
+        res.write(`data: ${JSON.stringify({ done: true, fullScript })}\n\n`);
+        res.end();
+
+        log.info({ objectType: narReq.objectType, objectId: narReq.objectId, len: fullScript.length }, 'Narration streamed via SSE');
+    } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        log.error({ err: msg }, 'Narration SSE stream failed');
+        if (!res.headersSent) {
+            res.status(500).json({ error: 'Stream failed' });
+        } else {
+            res.write(`data: ${JSON.stringify({ error: msg })}\n\n`);
+            res.end();
+        }
     }
 });
 
