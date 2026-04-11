@@ -139,6 +139,44 @@ export function createRouter(
     });
 
     // -----------------------------------------------------------------------
+    // GET /api/agent/call-history — proxy to agent
+    // -----------------------------------------------------------------------
+    router.get('/api/agent/call-history', async (_req: Request, res: Response) => {
+        try {
+            const response = await axios.get(`${AGENT_URL}/alerts/call-history`, {
+                timeout: 5_000,
+            });
+            res.json(response.data);
+        } catch (err: unknown) {
+            const axiosErr = err as { message?: string };
+            const message = axiosErr.message ?? 'Unknown error';
+            res.status(502).json({
+                error: `Agent unreachable: ${message}`,
+            });
+        }
+    });
+
+    // -----------------------------------------------------------------------
+    // POST /api/agent/test-call — proxy to agent
+    // -----------------------------------------------------------------------
+    router.post('/api/agent/test-call', async (_req: Request, res: Response) => {
+        try {
+            const response = await axios.post(
+                `${AGENT_URL}/alerts/test-call`,
+                {},
+                { timeout: 20_000 },
+            );
+            res.json(response.data);
+        } catch (err: unknown) {
+            const axiosErr = err as { response?: { data?: { error?: string } }; message?: string };
+            const message = axiosErr.response?.data?.error ?? axiosErr.message ?? 'Unknown error';
+            res.status(502).json({
+                error: `Agent test call failed: ${message}`,
+            });
+        }
+    });
+
+    // -----------------------------------------------------------------------
     // POST /internal/agent-push
     // -----------------------------------------------------------------------
     router.post(

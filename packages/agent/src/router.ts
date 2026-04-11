@@ -13,6 +13,8 @@ import {
 } from './dataCache';
 import { evaluate } from './riskEngine';
 import { generateBrief, generateFallbackBrief } from './llmBrief';
+import { checkAndAlert } from './phoneAlert';
+import { getCallHistory } from './alertConfig';
 
 const router = Router();
 
@@ -189,6 +191,48 @@ router.get('/space-weather', async (_req, res) => {
     }
     catch (_error) {
         res.status(500).json({ error: 'Failed to build space weather state' });
+    }
+});
+
+// ---------------------------------------------------------------------------
+// GET /alerts/call-history
+// ---------------------------------------------------------------------------
+
+router.get('/alerts/call-history', (_req, res) => {
+    res.json(getCallHistory());
+});
+
+// ---------------------------------------------------------------------------
+// POST /alerts/test-call
+// ---------------------------------------------------------------------------
+
+router.post('/alerts/test-call', async (_req, res) => {
+    if (process.env.NODE_ENV === 'production') {
+        res.status(403).json({ error: 'Test calls disabled in production' });
+        return;
+    }
+
+    try {
+        const risk = await getLatestRisk();
+        if (!risk) {
+            res.status(404).json({ error: 'No risk state available yet' });
+            return;
+        }
+
+        const brief = await getLatestBrief();
+        const useBrief = brief ?? generateFallbackBrief(risk);
+
+        // Force-trigger alert regardless of level/cooldown
+        await checkAndAlert(risk, null, useBrief);
+
+        res.json({
+            message: 'Test call triggered',
+            riskLevel: risk.level,
+            score: risk.score,
+        });
+    } catch (error) {
+        const msg = error instanceof Error ? error.message : String(error);
+        res.status(500).json({ error: `Test call failed: ${msg}` });
     }
 });
 

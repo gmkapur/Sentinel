@@ -1,9 +1,12 @@
-import 'dotenv/config';
+import dotenv from 'dotenv';
+import path from 'path';
+
+// Load root .env (CWD is packages/agent when run via `npm run dev`)
+dotenv.config({ path: path.resolve(__dirname, '..', '..', '..', '.env') });
 
 import express from 'express';
 import cron from 'node-cron';
 
-import { prisma, disconnectPrisma } from './prisma';
 import router from './router';
 import { pollSWPC } from './pollers/swpc';
 import { pollDONKI } from './pollers/donki';
@@ -25,6 +28,7 @@ import {
     getUpcomingNeos,
     saveMissionBrief,
 } from './dataCache';
+import { checkAndAlert } from './phoneAlert';
 
 import type { AgentPushPayload } from '@sentinel/shared';
 
@@ -71,7 +75,10 @@ async function runEvaluationCycle(): Promise<void> {
             await saveMissionBrief(brief);
         }
 
-        // 3. Build push payload
+        // 3. Check phone alerts
+        await checkAndAlert(risk, previousRisk, brief);
+
+        // 4. Build push payload
         const weather = await buildSpaceWeatherState();
         const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
         const [flares, cmes, neos] = await Promise.all([
@@ -90,7 +97,7 @@ async function runEvaluationCycle(): Promise<void> {
             timestamp: new Date().toISOString(),
         };
 
-        // 4. Push to gateway
+        // 5. Push to gateway
         await pushToGateway(payload);
 
         console.log('[Cycle] Evaluation cycle complete');
@@ -185,7 +192,6 @@ async function shutdown(signal: string): Promise<void> {
         job.stop();
     }
 
-    await disconnectPrisma();
     process.exit(0);
 }
 
@@ -197,19 +203,6 @@ process.on('SIGINT', () => shutdown('SIGINT'));
 // ---------------------------------------------------------------------------
 
 async function main(): Promise<void> {
-    // Verify database connection
-    try {
-        await prisma.$connect();
-        console.log('[DB] PostgreSQL connected');
-    }
-    catch (error) {
-        console.error('[DB] Failed to connect to PostgreSQL:', error);
-        console.error(
-            '[DB] Make sure DATABASE_URL is set and the database exists',
-        );
-        process.exit(1);
-    }
-
     app.listen(PORT, () => {
         console.log(`[Agent] Service running on port ${PORT}`);
         scheduleCronJobs();

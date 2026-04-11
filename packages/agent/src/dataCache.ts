@@ -1,5 +1,3 @@
-import { prisma } from './prisma';
-
 import type {
     RiskState,
     RiskBreakdown,
@@ -11,175 +9,14 @@ import type {
 } from '@sentinel/shared';
 
 // ---------------------------------------------------------------------------
-// Space Weather Readings (SWPC raw data)
+// In-memory store — no database needed. Data repopulates from pollers on
+// every startup and is pushed to the gateway for persistence.
 // ---------------------------------------------------------------------------
 
-export async function upsertSpaceWeather(
-    source: string,
-    data: unknown,
-): Promise<void> {
-    await prisma.spaceWeatherReading.create({
-        data: { source, data: data as object },
-    });
-}
-
-export async function getLatestSpaceWeather(
-    source: string,
-): Promise<unknown | null> {
-    const record = await prisma.spaceWeatherReading.findFirst({
-        where: { source },
-        orderBy: { processedAt: 'desc' },
-    });
-    return record?.data ?? null;
-}
-
-// ---------------------------------------------------------------------------
-// DONKI Flares
-// ---------------------------------------------------------------------------
-
-export async function upsertFlares(flares: DONKIFlare[]): Promise<void> {
-    if (flares.length === 0) return;
-
-    await prisma.$transaction(
-        flares.map((f) =>
-            prisma.donkiFlare.upsert({
-                where: { flrID: f.flrID },
-                update: {
-                    classType: f.classType,
-                    beginTime: new Date(f.beginTime),
-                    peakTime: new Date(f.peakTime),
-                    endTime: f.endTime ? new Date(f.endTime) : null,
-                    sourceLocation: f.sourceLocation,
-                    fetchedAt: new Date(),
-                },
-                create: {
-                    flrID: f.flrID,
-                    classType: f.classType,
-                    beginTime: new Date(f.beginTime),
-                    peakTime: new Date(f.peakTime),
-                    endTime: f.endTime ? new Date(f.endTime) : null,
-                    sourceLocation: f.sourceLocation,
-                },
-            }),
-        ),
-    );
-}
-
-export async function getRecentFlares(since: Date): Promise<DONKIFlare[]> {
-    const records = await prisma.donkiFlare.findMany({
-        where: { peakTime: { gte: since } },
-        orderBy: { peakTime: 'desc' },
-    });
-    return records.map((r) => ({
-        flrID: r.flrID,
-        classType: r.classType,
-        beginTime: r.beginTime.toISOString(),
-        peakTime: r.peakTime.toISOString(),
-        endTime: r.endTime?.toISOString() ?? null,
-        sourceLocation: r.sourceLocation,
-    }));
-}
-
-// ---------------------------------------------------------------------------
-// DONKI CMEs
-// ---------------------------------------------------------------------------
-
-export async function upsertCMEs(cmes: DONKICME[]): Promise<void> {
-    if (cmes.length === 0) return;
-
-    await prisma.$transaction(
-        cmes.map((c) =>
-            prisma.donkiCME.upsert({
-                where: { activityID: c.activityID },
-                update: {
-                    startTime: new Date(c.startTime),
-                    speed: c.speed,
-                    type: c.type,
-                    fetchedAt: new Date(),
-                },
-                create: {
-                    activityID: c.activityID,
-                    startTime: new Date(c.startTime),
-                    speed: c.speed,
-                    type: c.type,
-                },
-            }),
-        ),
-    );
-}
-
-export async function getRecentCMEs(since: Date): Promise<DONKICME[]> {
-    const records = await prisma.donkiCME.findMany({
-        where: { startTime: { gte: since } },
-        orderBy: { startTime: 'desc' },
-    });
-    return records.map((r) => ({
-        activityID: r.activityID,
-        startTime: r.startTime.toISOString(),
-        speed: r.speed,
-        type: r.type,
-    }));
-}
-
-// ---------------------------------------------------------------------------
-// NEO Objects
-// ---------------------------------------------------------------------------
-
-export async function upsertNeos(neos: NEOObject[]): Promise<void> {
-    if (neos.length === 0) return;
-
-    await prisma.$transaction(
-        neos.map((n) =>
-            prisma.neoObject.upsert({
-                where: { neoId: n.id },
-                update: {
-                    name: n.name,
-                    estimatedDiameter: n.estimatedDiameter,
-                    isPotentiallyHazardous: n.isPotentiallyHazardous,
-                    closeApproachDate: new Date(n.closeApproachDate),
-                    missDistanceKm: n.missDistanceKm,
-                    relativeVelocityKmS: n.relativeVelocityKmS,
-                    fetchedAt: new Date(),
-                },
-                create: {
-                    neoId: n.id,
-                    name: n.name,
-                    estimatedDiameter: n.estimatedDiameter,
-                    isPotentiallyHazardous: n.isPotentiallyHazardous,
-                    closeApproachDate: new Date(n.closeApproachDate),
-                    missDistanceKm: n.missDistanceKm,
-                    relativeVelocityKmS: n.relativeVelocityKmS,
-                },
-            }),
-        ),
-    );
-}
-
-export async function getUpcomingNeos(
-    withinDays: number,
-): Promise<NEOObject[]> {
-    const now = new Date();
-    const future = new Date(now.getTime() + withinDays * 24 * 60 * 60 * 1000);
-    const records = await prisma.neoObject.findMany({
-        where: {
-            closeApproachDate: { gte: now, lte: future },
-        },
-        orderBy: { closeApproachDate: 'asc' },
-    });
-    return records.map((r) => ({
-        id: r.neoId,
-        name: r.name,
-        estimatedDiameter: r.estimatedDiameter,
-        isPotentiallyHazardous: r.isPotentiallyHazardous,
-        closeApproachDate: r.closeApproachDate.toISOString(),
-        missDistanceKm: r.missDistanceKm,
-        relativeVelocityKmS: r.relativeVelocityKmS,
-    }));
-}
-
-// ---------------------------------------------------------------------------
-// EONET Events
-// ---------------------------------------------------------------------------
+const spaceWeather = new Map<string, { data: unknown; timestamp: Date }>();
+let flares: DONKIFlare[] = [];
+let cmes: DONKICME[] = [];
+let neos: NEOObject[] = [];
 
 interface EonetEventInput {
     eventId: string;
@@ -190,53 +27,143 @@ interface EonetEventInput {
     date: string;
     coordinates: unknown;
 }
+let eonetEvents: EonetEventInput[] = [];
+
+const riskHistory: RiskState[] = []; // keep last 2
+let latestBrief: MissionBrief | null = null;
+
+const pollStatuses = new Map<
+    string,
+    { lastPollAt: Date; lastSuccess: boolean; errorMessage: string | null }
+>();
+
+// ---------------------------------------------------------------------------
+// Space Weather Readings (SWPC raw data)
+// ---------------------------------------------------------------------------
+
+export async function upsertSpaceWeather(
+    source: string,
+    data: unknown,
+): Promise<void> {
+    spaceWeather.set(source, { data, timestamp: new Date() });
+}
+
+export async function getLatestSpaceWeather(
+    source: string,
+): Promise<unknown | null> {
+    return spaceWeather.get(source)?.data ?? null;
+}
+
+// ---------------------------------------------------------------------------
+// DONKI Flares
+// ---------------------------------------------------------------------------
+
+export async function upsertFlares(incoming: DONKIFlare[]): Promise<void> {
+    if (incoming.length === 0) return;
+
+    const byId = new Map(flares.map((f) => [f.flrID, f]));
+    for (const f of incoming) {
+        byId.set(f.flrID, f);
+    }
+    // Prune older than 30 days
+    const cutoff = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+    flares = [...byId.values()].filter(
+        (f) => new Date(f.peakTime) >= cutoff,
+    );
+}
+
+export async function getRecentFlares(since: Date): Promise<DONKIFlare[]> {
+    return flares
+        .filter((f) => new Date(f.peakTime) >= since)
+        .sort(
+            (a, b) =>
+                new Date(b.peakTime).getTime() -
+                new Date(a.peakTime).getTime(),
+        );
+}
+
+// ---------------------------------------------------------------------------
+// DONKI CMEs
+// ---------------------------------------------------------------------------
+
+export async function upsertCMEs(incoming: DONKICME[]): Promise<void> {
+    if (incoming.length === 0) return;
+
+    const byId = new Map(cmes.map((c) => [c.activityID, c]));
+    for (const c of incoming) {
+        byId.set(c.activityID, c);
+    }
+    const cutoff = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+    cmes = [...byId.values()].filter(
+        (c) => new Date(c.startTime) >= cutoff,
+    );
+}
+
+export async function getRecentCMEs(since: Date): Promise<DONKICME[]> {
+    return cmes
+        .filter((c) => new Date(c.startTime) >= since)
+        .sort(
+            (a, b) =>
+                new Date(b.startTime).getTime() -
+                new Date(a.startTime).getTime(),
+        );
+}
+
+// ---------------------------------------------------------------------------
+// NEO Objects
+// ---------------------------------------------------------------------------
+
+export async function upsertNeos(incoming: NEOObject[]): Promise<void> {
+    if (incoming.length === 0) return;
+
+    const byId = new Map(neos.map((n) => [n.id, n]));
+    for (const n of incoming) {
+        byId.set(n.id, n);
+    }
+    neos = [...byId.values()];
+}
+
+export async function getUpcomingNeos(
+    withinDays: number,
+): Promise<NEOObject[]> {
+    const now = new Date();
+    const future = new Date(now.getTime() + withinDays * 24 * 60 * 60 * 1000);
+    return neos
+        .filter((n) => {
+            const d = new Date(n.closeApproachDate);
+            return d >= now && d <= future;
+        })
+        .sort(
+            (a, b) =>
+                new Date(a.closeApproachDate).getTime() -
+                new Date(b.closeApproachDate).getTime(),
+        );
+}
+
+// ---------------------------------------------------------------------------
+// EONET Events
+// ---------------------------------------------------------------------------
 
 export async function upsertEonetEvents(
     events: EonetEventInput[],
 ): Promise<void> {
     if (events.length === 0) return;
 
-    await prisma.$transaction(
-        events.map((e) =>
-            prisma.eonetEvent.upsert({
-                where: { eventId: e.eventId },
-                update: {
-                    title: e.title,
-                    category: e.category,
-                    source: e.source,
-                    link: e.link,
-                    date: new Date(e.date),
-                    coordinates: e.coordinates as object | undefined,
-                    fetchedAt: new Date(),
-                },
-                create: {
-                    eventId: e.eventId,
-                    title: e.title,
-                    category: e.category,
-                    source: e.source,
-                    link: e.link,
-                    date: new Date(e.date),
-                    coordinates: e.coordinates as object | undefined,
-                },
-            }),
-        ),
-    );
+    const byId = new Map(eonetEvents.map((e) => [e.eventId, e]));
+    for (const e of events) {
+        byId.set(e.eventId, e);
+    }
+    // Keep newest 20
+    eonetEvents = [...byId.values()]
+        .sort(
+            (a, b) =>
+                new Date(b.date).getTime() - new Date(a.date).getTime(),
+        )
+        .slice(0, 20);
 }
 
 export async function getActiveEonetEvents(): Promise<EonetEventInput[]> {
-    const records = await prisma.eonetEvent.findMany({
-        orderBy: { date: 'desc' },
-        take: 20,
-    });
-    return records.map((r) => ({
-        eventId: r.eventId,
-        title: r.title,
-        category: r.category,
-        source: r.source,
-        link: r.link,
-        date: r.date.toISOString(),
-        coordinates: r.coordinates,
-    }));
+    return eonetEvents;
 }
 
 // ---------------------------------------------------------------------------
@@ -244,41 +171,23 @@ export async function getActiveEonetEvents(): Promise<EonetEventInput[]> {
 // ---------------------------------------------------------------------------
 
 export async function saveRiskAssessment(risk: RiskState): Promise<void> {
-    await prisma.riskAssessment.create({
-        data: {
-            score: risk.score,
-            level: risk.level,
-            breakdown: risk.breakdown as unknown as object,
-        },
-    });
+    riskHistory.push(risk);
+    // Keep only the last 2
+    if (riskHistory.length > 2) {
+        riskHistory.splice(0, riskHistory.length - 2);
+    }
 }
 
 export async function getLatestRisk(): Promise<RiskState | null> {
-    const record = await prisma.riskAssessment.findFirst({
-        orderBy: { createdAt: 'desc' },
-    });
-    if (!record) return null;
-    return {
-        score: record.score,
-        level: record.level as RiskState['level'],
-        breakdown: record.breakdown as unknown as RiskBreakdown,
-        timestamp: record.createdAt.toISOString(),
-    };
+    return riskHistory.length > 0
+        ? riskHistory[riskHistory.length - 1]
+        : null;
 }
 
 export async function getPreviousRisk(): Promise<RiskState | null> {
-    const records = await prisma.riskAssessment.findMany({
-        orderBy: { createdAt: 'desc' },
-        take: 2,
-    });
-    if (records.length < 2) return null;
-    const prev = records[1];
-    return {
-        score: prev.score,
-        level: prev.level as RiskState['level'],
-        breakdown: prev.breakdown as unknown as RiskBreakdown,
-        timestamp: prev.createdAt.toISOString(),
-    };
+    return riskHistory.length >= 2
+        ? riskHistory[riskHistory.length - 2]
+        : null;
 }
 
 // ---------------------------------------------------------------------------
@@ -286,32 +195,11 @@ export async function getPreviousRisk(): Promise<RiskState | null> {
 // ---------------------------------------------------------------------------
 
 export async function saveMissionBrief(brief: MissionBrief): Promise<void> {
-    await prisma.missionBrief.create({
-        data: {
-            recommendation: brief.recommendation,
-            summary: brief.summary,
-            threats: brief.threats as unknown as object,
-            maneuverWindows: brief.maneuverWindows as unknown as object,
-            confidence: brief.confidence,
-            isLlm: brief.isLlm,
-        },
-    });
+    latestBrief = brief;
 }
 
 export async function getLatestBrief(): Promise<MissionBrief | null> {
-    const record = await prisma.missionBrief.findFirst({
-        orderBy: { generatedAt: 'desc' },
-    });
-    if (!record) return null;
-    return {
-        recommendation: record.recommendation as MissionBrief['recommendation'],
-        summary: record.summary,
-        threats: record.threats as unknown as string[],
-        maneuverWindows: record.maneuverWindows as unknown as string[],
-        confidence: record.confidence,
-        generatedAt: record.generatedAt.toISOString(),
-        isLlm: record.isLlm,
-    };
+    return latestBrief;
 }
 
 // ---------------------------------------------------------------------------
@@ -323,19 +211,10 @@ export async function updatePollStatus(
     success: boolean,
     errorMessage?: string,
 ): Promise<void> {
-    await prisma.pollStatus.upsert({
-        where: { source },
-        update: {
-            lastPollAt: new Date(),
-            lastSuccess: success,
-            errorMessage: errorMessage ?? null,
-        },
-        create: {
-            source,
-            lastPollAt: new Date(),
-            lastSuccess: success,
-            errorMessage: errorMessage ?? null,
-        },
+    pollStatuses.set(source, {
+        lastPollAt: new Date(),
+        lastSuccess: success,
+        errorMessage: errorMessage ?? null,
     });
 }
 
@@ -346,8 +225,11 @@ export async function getPollStatuses(): Promise<
         lastSuccess: boolean;
         errorMessage: string | null;
     }>
-    > {
-    return prisma.pollStatus.findMany();
+> {
+    return [...pollStatuses.entries()].map(([source, status]) => ({
+        source,
+        ...status,
+    }));
 }
 
 // ---------------------------------------------------------------------------
@@ -409,7 +291,6 @@ export function classifyXrayFlux(flux: number): string {
 
 function extractKpIndex(data: unknown): number | null {
     if (!Array.isArray(data) || data.length < 2) return null;
-    // First row is header, last row is most recent
     const latest = data[data.length - 1];
     const kp = parseFloat(
         Array.isArray(latest) ? latest[1] : (latest?.kp_index ?? '0'),
@@ -426,7 +307,6 @@ function extractProtonFlux(data: unknown): number | null {
 
 function extractSolarWindSpeed(data: unknown): number | null {
     if (!Array.isArray(data) || data.length < 2) return null;
-    // First row is header, last row is most recent
     const latest = data[data.length - 1];
     const speed = parseFloat(
         Array.isArray(latest) ? latest[1] : (latest?.speed ?? '0'),
@@ -436,7 +316,6 @@ function extractSolarWindSpeed(data: unknown): number | null {
 
 function extractBz(data: unknown): number | null {
     if (!Array.isArray(data) || data.length < 2) return null;
-    // First row is header, last row is most recent
     const latest = data[data.length - 1];
     const bz = parseFloat(
         Array.isArray(latest) ? latest[3] : (latest?.bz_gsm ?? '0'),

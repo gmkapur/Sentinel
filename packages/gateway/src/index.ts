@@ -1,4 +1,8 @@
-import 'dotenv/config';
+import dotenv from 'dotenv';
+import path from 'path';
+
+// Load root .env (CWD is packages/gateway when run via `npm run dev`)
+dotenv.config({ path: path.resolve(__dirname, '..', '..', '..', '.env') });
 
 import { createServer } from 'http';
 
