@@ -14,11 +14,7 @@ const envSchema = z.object({
         .enum(['development', 'production', 'test'])
         .default('development'),
 
-    // Auth — disabled when DEMO_MODE is true
-    DEMO_MODE: z
-        .enum(['true', 'false'])
-        .default('false')
-        .transform((v) => v === 'true'),
+    // Auth — API_KEY required in production, INTERNAL_SECRET always required
     API_KEY: z.string().optional(),
     INTERNAL_SECRET: z.string().optional(),
 });
@@ -39,15 +35,18 @@ export function validateEnv(): Env {
 
     const env = result.data;
 
-    if (!env.DEMO_MODE) {
+    if (env.NODE_ENV === 'production') {
         if (!env.API_KEY) {
-            log.warn('API_KEY not set — public API routes will reject requests');
+            log.warn('API_KEY not set — public API routes will reject requests in production');
         }
         if (!env.INTERNAL_SECRET) {
             log.warn('INTERNAL_SECRET not set — internal routes will reject requests');
         }
     } else {
-        log.info('DEMO_MODE enabled — auth checks are disabled');
+        log.info('Development mode — API key auth bypassed for public routes');
+        if (!env.INTERNAL_SECRET) {
+            log.warn('INTERNAL_SECRET not set — internal routes will reject requests');
+        }
     }
 
     return env;

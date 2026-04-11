@@ -1,4 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk';
+import { z } from 'zod';
 
 import axios from 'axios';
 
@@ -34,6 +35,18 @@ function getClient(): Anthropic | null {
 }
 
 const MODEL = 'claude-sonnet-4-20250514';
+
+// ---------------------------------------------------------------------------
+// Zod schema for LLM response validation
+// ---------------------------------------------------------------------------
+
+const missionBriefResponseSchema = z.object({
+    recommendation: z.string().min(1),
+    summary: z.string().min(1),
+    threats: z.array(z.string()).default([]),
+    maneuverWindows: z.array(z.string()).default([]),
+    confidence: z.number().min(0).max(1).default(0.5),
+});
 
 // ---------------------------------------------------------------------------
 // Trigger logic
@@ -129,27 +142,25 @@ export async function generateBrief(
             throw new Error('No text content in Claude response');
         }
 
-        const parsed = JSON.parse(textBlock.text) as {
-            recommendation: string;
-            summary: string;
-            threats: string[];
-            maneuverWindows: string[];
-            confidence: number;
-        };
+        const rawJson = JSON.parse(textBlock.text);
+        const validated = missionBriefResponseSchema.safeParse(rawJson);
+
+        if (!validated.success) {
+            const errors = validated.error.issues
+                .map((i) => `${i.path.join('.')}: ${i.message}`)
+                .join('; ');
+            log.warn({ errors }, 'LLM response failed schema validation, using fallback');
+            return generateFallbackBrief(risk);
+        }
+
+        const parsed = validated.data;
 
         const brief: MissionBrief = {
             recommendation: validateRecommendation(parsed.recommendation),
-            summary: String(parsed.summary ?? ''),
-            threats: Array.isArray(parsed.threats)
-                ? parsed.threats.map(String)
-                : [],
-            maneuverWindows: Array.isArray(parsed.maneuverWindows)
-                ? parsed.maneuverWindows.map(String)
-                : [],
-            confidence: Math.max(
-                0,
-                Math.min(1, Number(parsed.confidence) || 0.5),
-            ),
+            summary: parsed.summary,
+            threats: parsed.threats.map(String),
+            maneuverWindows: parsed.maneuverWindows.map(String),
+            confidence: parsed.confidence,
             generatedAt: new Date().toISOString(),
             isLlm: true,
         };
@@ -303,7 +314,7 @@ async function buildUserPrompt(
             const pos = `${Math.abs(sat.lat).toFixed(1)}°${sat.lat >= 0 ? 'N' : 'S'} ${Math.abs(sat.lng).toFixed(1)}°${sat.lng >= 0 ? 'E' : 'W'}`;
             const sunlit = sat.isSunlit ? 'SUNLIT' : 'SHADOW';
             const saa = sat.isInSAA ? ', IN SAA' : '';
-            const cme = sat.cmeImpactProbability != null
+            const cme = sat.cmeImpactProbability !== null && sat.cmeImpactProbability !== undefined
                 ? `, CME impact ${Math.round(sat.cmeImpactProbability * 100)}%`
                 : '';
             satSection += `  ${sat.name} (NORAD ${sat.noradId}, ${sat.orbitRegime}, ${Math.round(sat.altitude)} km alt) — ${sat.riskLevel} (score ${sat.riskScore})\n`;

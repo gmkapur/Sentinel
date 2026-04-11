@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { z } from 'zod';
 
 import { logger } from '../logger';
 import { upsertSpaceWeather, updatePollStatus } from '../dataCache';
@@ -17,10 +18,24 @@ const ENDPOINTS = {
 
 type SwpcSource = keyof typeof ENDPOINTS;
 
+// ---------------------------------------------------------------------------
+// Zod schemas for SWPC API response validation
+// ---------------------------------------------------------------------------
+
+// SWPC JSON endpoints return arrays of objects or arrays of arrays
+const swpcArraySchema = z.array(z.unknown()).min(1, 'Empty SWPC response');
+
 async function fetchAndStore(source: SwpcSource): Promise<void> {
     const url = ENDPOINTS[source];
     const response = await axios.get(url, { timeout: 10_000 });
-    await upsertSpaceWeather(source, response.data);
+
+    // Validate response is a non-empty array (all SWPC endpoints return arrays)
+    const validated = swpcArraySchema.safeParse(response.data);
+    if (!validated.success) {
+        throw new Error(`[SWPC] Invalid ${source} response: ${validated.error.issues[0]?.message}`);
+    }
+
+    await upsertSpaceWeather(source, validated.data);
     await updatePollStatus(source, true);
 }
 

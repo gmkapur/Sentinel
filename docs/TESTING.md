@@ -2,7 +2,7 @@
 
 ## Philosophy
 
-MVP ships without tests — testing is explicitly deferred to keep the 6-hour sprint focused on core functionality. When tests are added post-MVP, they follow these priorities:
+Tests are organized by priority — the risk engine scoring logic receives the most thorough coverage, followed by data parsing and API route contracts. Tests follow these priorities:
 
 1. **Risk engine scoring logic** — Highest value. Incorrect risk scores have the most user impact.
 2. **Poller data parsing** — Validates that real API responses are correctly transformed.
@@ -36,42 +36,30 @@ npx vitest run --coverage
 
 ## Test Structure
 
+Tests are colocated with source files using `__tests__/` directories:
+
 ```
-tests/
-├── unit/
-│   ├── agent/
-│   │   ├── riskEngine.test.ts       # Scoring logic with mock data
-│   │   ├── dataCache.test.ts        # Cache TTL behavior
-│   │   ├── llmBrief.test.ts         # Brief generation + fallback
-│   │   └── pollers/
-│   │       ├── swpc.test.ts         # SWPC response parsing
-│   │       ├── donki.test.ts        # DONKI response parsing
-│   │       ├── neows.test.ts        # NeoWs response parsing
-│   │       └── eonet.test.ts        # EONET response parsing
-│   └── gateway/
-│       ├── satellites.test.ts       # SGP4 propagation + TLE parsing
-│       └── agentState.test.ts       # State store + alert history
-│
-├── integration/
-│   ├── agent/
-│   │   └── router.test.ts          # Agent API routes
-│   ├── gateway/
-│   │   ├── routes.test.ts          # Gateway REST API
-│   │   └── websocket.test.ts       # Socket.io event flow
-│   └── push.test.ts               # Agent -> gateway push flow
-│
-└── fixtures/
-    ├── swpc-xray.json              # Sample SWPC X-ray response
-    ├── swpc-kp.json                # Sample Kp response
-    ├── swpc-protons.json           # Sample proton flux response
-    ├── swpc-wind.json              # Sample solar wind response
-    ├── swpc-mag.json               # Sample magnetic field response
-    ├── donki-flare.json            # Sample DONKI flare response
-    ├── donki-cme.json              # Sample DONKI CME response
-    ├── neows-feed.json             # Sample NeoWs feed response
-    ├── eonet-events.json           # Sample EONET events response
-    └── celestrak-3le.txt           # Sample CelesTrak 3LE data
+packages/agent/src/__tests__/
+├── riskEngine.test.ts     # Score calculation, compound synergy, level mapping
+├── scenarios.test.ts      # End-to-end scoring with historical fixtures (G5 storm, quiet sun, moderate)
+├── llmBrief.test.ts       # Brief generation, fallback path, trigger conditions
+├── dataCache.test.ts      # Cache TTL behavior, source-specific TTLs
+├── cmeGeometry.test.ts    # CME cone geometry calculations
+├── cmeRiskScoring.test.ts # CME path scoring and synergy rules
+├── env.test.ts            # Environment variable validation
+└── fixtures.ts            # Typed fixture data (G5 storm, quiet sun, moderate event)
+
+packages/gateway/src/__tests__/
+└── satRisk.test.ts        # Per-satellite risk scoring, subsolar point, SAA detection
 ```
+
+### Fixture Data
+
+Typed fixture data in `packages/agent/src/__tests__/fixtures.ts` provides reproducible test inputs based on real historical events:
+
+- **May 2024 G5 Storm** — X5.8 flare, Kp 9, proton flux 500, solar wind 900 km/s, Bz -25 nT → validates CRITICAL (score 100)
+- **Quiet Sun** — No activity → validates LOW (score 0)
+- **Moderate M-class Event** — M3.2 flare, Kp 4, proton flux 5 → validates MODERATE (score 20-39)
 
 ---
 

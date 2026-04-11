@@ -35,15 +35,23 @@ describe('validateEnv', () => {
         expect(env.GATEWAY_URL).toBe('http://localhost:3001');
     });
 
-    it('sets DEMO_MODE to false by default', () => {
-        delete process.env.DEMO_MODE;
+    it('defaults NODE_ENV to development', () => {
+        delete process.env.NODE_ENV;
         const env = validateEnv();
-        expect(env.DEMO_MODE).toBe(false);
+        expect(env.NODE_ENV).toBe('development');
     });
 
-    it('parses DEMO_MODE=true correctly', () => {
-        process.env.DEMO_MODE = 'true';
+    it('accepts valid NODE_ENV values', () => {
+        process.env.NODE_ENV = 'production';
         const env = validateEnv();
-        expect(env.DEMO_MODE).toBe(true);
+        expect(env.NODE_ENV).toBe('production');
+    });
+
+    it('treats missing API keys as optional (graceful degradation)', () => {
+        delete process.env.NASA_API_KEY;
+        delete process.env.ANTHROPIC_API_KEY;
+        const env = validateEnv();
+        expect(env.NASA_API_KEY).toBeUndefined();
+        expect(env.ANTHROPIC_API_KEY).toBeUndefined();
     });
 });

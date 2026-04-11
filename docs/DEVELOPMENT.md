@@ -53,6 +53,15 @@ cd packages/gateway && npm run dev        # Dev mode with watch (port 3001)
 cd packages/frontend && npm run dev       # Dev mode with HMR (port 5173)
 ```
 
+### Testing
+
+```bash
+npm test                                  # Run all 156 tests (vitest)
+npm run test:watch                        # Watch mode (re-run on changes)
+npm run test:coverage                     # Generate coverage report
+npx vitest run packages/agent/src/__tests__/riskEngine.test.ts  # Single file
+```
+
 ### Code Quality
 
 ```bash
@@ -70,6 +79,15 @@ cd packages/gateway && npm run build      # Compile gateway TypeScript
 cd packages/frontend && npm run build     # Build frontend (outputs to dist/)
 ```
 
+### Docker
+
+```bash
+docker compose up --build -d              # Build and start all services
+docker compose logs -f                    # Stream logs
+docker compose down                       # Stop all services
+docker compose down -v                    # Stop and remove data volumes
+```
+
 ### Verifying the System
 
 ```bash
@@ -77,16 +95,16 @@ cd packages/frontend && npm run build     # Build frontend (outputs to dist/)
 curl http://localhost:3002/health
 
 # Check full system state (risk, brief, weather, satellites)
-curl http://localhost:3001/api/status
+curl http://localhost:3001/api/v1/status
 
 # Check satellite positions
-curl http://localhost:3001/api/satellites
+curl http://localhost:3001/api/v1/satellites
 
 # Check raw cached data from a specific source
 curl http://localhost:3002/data/swpc-xray
 
 # Force a new LLM brief generation
-curl -X POST http://localhost:3001/api/agent/brief
+curl -X POST http://localhost:3001/api/v1/agent/brief
 ```
 
 ---
@@ -126,7 +144,7 @@ sentinel/
 ├── docs/                          # Documentation
 ├── .env                           # Environment variables (not committed)
 ├── package.json                   # Workspace root
-└── .github/workflows/lint.yml     # CI pipeline
+└── .github/workflows/ci.yml     # CI pipeline
 ```
 
 ---
@@ -207,9 +225,9 @@ npm run lint && npm run format:check
 | `GET :3002/health` | Agent uptime, last poll timestamps, cache stats |
 | `GET :3002/data/swpc-xray` | Raw cached SWPC X-ray data |
 | `GET :3002/status` | Current risk score and breakdown |
-| `GET :3001/api/status` | Full system state |
-| `GET :3001/api/satellites` | All satellite positions |
-| `GET :3001/api/agent/health` | Agent health (proxied) |
+| `GET :3001/api/v1/status` | Full system state |
+| `GET :3001/api/v1/satellites` | All satellite positions |
+| `GET :3001/api/v1/agent/health` | Agent health (proxied) |
 
 ### Tools
 

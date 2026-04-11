@@ -8,18 +8,32 @@
 | **Agent base URL** | `http://localhost:3002` (internal only) |
 | **Style** | REST (JSON request/response) |
 | **Content type** | `application/json` |
-| **Authentication** | None for public endpoints; `x-internal-secret` header for internal push |
-| **Versioning** | None (MVP) |
+| **Authentication** | API key (`x-api-key` header) for public endpoints; `x-internal-secret` header for internal endpoints |
+| **Versioning** | `/api/v1/` prefix on all public REST endpoints |
+| **Rate limiting** | 120 requests/minute per IP on all `/api/v1/*` routes |
 
 ---
 
 ## Authentication
 
-### Public API (Gateway)
-No authentication required. The gateway serves a read-only dashboard — all endpoints are publicly accessible.
+### Public API (Gateway `/api/v1/*`)
 
-### Internal API (Agent -> Gateway)
-The agent pushes data to the gateway using a shared secret:
+All public API endpoints require an `x-api-key` header in production. In development (`NODE_ENV=development`), API key authentication is bypassed for convenience.
+
+```bash
+# Production
+curl -H "x-api-key: your-api-key" http://localhost:3001/api/v1/status
+
+# Development (no key needed)
+curl http://localhost:3001/api/v1/status
+```
+
+API keys are validated using timing-safe comparison (`crypto.timingSafeEqual`) to prevent timing attacks.
+
+### Internal API (Agent -> Gateway `/internal/*`)
+
+The agent pushes data to the gateway using a shared secret. Internal authentication is **always enforced** regardless of environment:
+
 ```bash
 curl -X POST http://localhost:3001/internal/agent-push \
   -H "Content-Type: application/json" \
@@ -35,13 +49,13 @@ curl -X POST http://localhost:3001/internal/agent-push \
 | NOAA SWPC | None |
 | CelesTrak | None |
 | NASA EONET | None |
-| Claude API | `x-api-key` header (`ANTHROPIC_API_KEY` env var) |
+| Claude API | `x-api-key` header (`ANTHROPIC_API_KEY` env var, managed by Anthropic SDK) |
 
 ---
 
 ## Gateway Endpoints (`:3001`)
 
-### `GET /api/satellites`
+### `GET /api/v1/satellites`
 
 Returns current positions for all tracked satellites, propagated via SGP4 from cached TLEs.
 
@@ -63,7 +77,7 @@ Returns current positions for all tracked satellites, propagated via SGP4 from c
 
 ---
 
-### `GET /api/satellites/:noradId`
+### `GET /api/v1/satellites/:noradId`
 
 Returns a single satellite's current position plus its TLE lines.
 
@@ -93,7 +107,7 @@ Returns a single satellite's current position plus its TLE lines.
 
 ---
 
-### `GET /api/status`
+### `GET /api/v1/status`
 
 Returns the full current system state: risk assessment, mission brief, space weather, and metadata.
 
@@ -137,7 +151,7 @@ Returns the full current system state: risk assessment, mission brief, space wea
 
 ---
 
-### `GET /api/alerts`
+### `GET /api/v1/alerts`
 
 Returns alert history — records created each time the risk level changes. Maximum 100 records.
 
@@ -161,7 +175,7 @@ Returns alert history — records created each time the risk level changes. Maxi
 
 ---
 
-### `GET /api/space-weather`
+### `GET /api/v1/space-weather`
 
 Returns the latest processed space weather state from the agent. Returns `null` if no agent data received yet.
 
@@ -178,7 +192,7 @@ Returns the latest processed space weather state from the agent. Returns `null` 
 
 ---
 
-### `GET /api/agent/brief`
+### `GET /api/v1/agent/brief`
 
 Returns the latest LLM-generated mission brief. Checks local cache first, falls back to querying the agent.
 
@@ -201,7 +215,7 @@ Returns the latest LLM-generated mission brief. Checks local cache first, falls 
 
 ---
 
-### `POST /api/agent/brief`
+### `POST /api/v1/agent/brief`
 
 Forces on-demand LLM brief generation. Proxied to agent's `POST /brief/generate`. May take up to 30 seconds.
 
@@ -214,7 +228,7 @@ Forces on-demand LLM brief generation. Proxied to agent's `POST /brief/generate`
 
 ---
 
-### `GET /api/agent/health`
+### `GET /api/v1/agent/health`
 
 Returns agent service health. Proxied from agent's `/health`.
 
@@ -421,6 +435,15 @@ All errors follow this shape:
 
 | Context | Status |
 |---------|--------|
-| Internal endpoints | No rate limiting (MVP) |
+| Public API (`/api/v1/*`) | **Active** — `express-rate-limit` at 120 req/min per IP. Returns `429 Too Many Requests` with `{ "error": "Too many requests, please try again later" }`. |
+| Internal endpoints (`/internal/*`) | No rate limiting — trusted agent-to-gateway communication |
 | External APIs | Respected by cron-scheduled pollers (see [`GOTCHAS.md`](GOTCHAS.md)) |
-| Post-MVP | Add `express-rate-limit` if exposing gateway publicly |
+
+### Rate Limit Headers
+
+Rate-limited responses include standard headers:
+```
+RateLimit-Limit: 120
+RateLimit-Remaining: 118
+RateLimit-Reset: 1712841660
+```

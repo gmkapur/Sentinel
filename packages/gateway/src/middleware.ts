@@ -1,8 +1,21 @@
+import { timingSafeEqual } from 'crypto';
 import type { Request, Response, NextFunction } from 'express';
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
 import type { Logger } from '@sentinel/shared';
 import type { Env } from './env';
+
+// Constant-time string comparison to prevent timing attacks
+function safeCompare(a: string, b: string): boolean {
+    const aBuf = Buffer.from(a);
+    const bBuf = Buffer.from(b);
+    if (aBuf.length !== bBuf.length) {
+        // Compare against self to keep timing consistent regardless of length
+        timingSafeEqual(aBuf, aBuf);
+        return false;
+    }
+    return timingSafeEqual(aBuf, bBuf);
+}
 
 // ---------------------------------------------------------------------------
 // Security headers via helmet
@@ -26,12 +39,15 @@ export const apiRateLimit = rateLimit({
 });
 
 // ---------------------------------------------------------------------------
-// API key auth — protects /api/* routes (disabled in demo mode)
+// API key auth — protects /api/v1/* routes
+// Bypassed in development mode (NODE_ENV=development) to simplify local dev.
+// Always enforced in production.
 // ---------------------------------------------------------------------------
 
 export function requireApiKey(env: Env) {
     return (req: Request, res: Response, next: NextFunction): void => {
-        if (env.DEMO_MODE) {
+        // In development, skip API key check for convenience
+        if (env.NODE_ENV === 'development') {
             next();
             return;
         }
@@ -41,7 +57,7 @@ export function requireApiKey(env: Env) {
             res.status(401).json({ error: 'Missing x-api-key header' });
             return;
         }
-        if (key !== env.API_KEY) {
+        if (!env.API_KEY || !safeCompare(key, env.API_KEY)) {
             res.status(403).json({ error: 'Invalid API key' });
             return;
         }
@@ -50,22 +66,19 @@ export function requireApiKey(env: Env) {
 }
 
 // ---------------------------------------------------------------------------
-// Internal secret auth — protects /internal/* routes (disabled in demo mode)
+// Internal secret auth — protects /internal/* routes
+// ALWAYS enforced regardless of environment — agent-to-gateway communication
+// must be authenticated even in development.
 // ---------------------------------------------------------------------------
 
 export function requireInternalSecret(env: Env) {
     return (req: Request, res: Response, next: NextFunction): void => {
-        if (env.DEMO_MODE) {
-            next();
-            return;
-        }
-
         const secret = req.header('x-internal-secret');
         if (!secret) {
             res.status(401).json({ error: 'Missing x-internal-secret header' });
             return;
         }
-        if (secret !== env.INTERNAL_SECRET) {
+        if (!env.INTERNAL_SECRET || !safeCompare(secret, env.INTERNAL_SECRET)) {
             res.status(403).json({ error: 'Invalid internal secret' });
             return;
         }

@@ -57,8 +57,8 @@ app.use(securityHeaders);
 app.use(createRequestLogger(logger));
 app.use(cors());
 app.use(express.json({ limit: '1mb' }));
-app.use('/api/', apiRateLimit);
-app.use('/api/', requireApiKey(env));
+app.use('/api/v1/', apiRateLimit);
+app.use('/api/v1/', requireApiKey(env));
 app.use('/internal/', requireInternalSecret(env));
 
 // ---------------------------------------------------------------------------

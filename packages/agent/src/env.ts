@@ -15,10 +15,6 @@ const envSchema = z.object({
     // External API keys (optional, graceful degradation without them)
     NASA_API_KEY: z.string().optional(),
     ANTHROPIC_API_KEY: z.string().optional(),
-    DEMO_MODE: z
-        .enum(['true', 'false'])
-        .default('false')
-        .transform((v) => v === 'true'),
 
     // Inter-service auth
     INTERNAL_SECRET: z.string().optional(),

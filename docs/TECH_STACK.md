@@ -42,6 +42,11 @@
 | `socket.io` | ^4.7 | WebSocket server | Real-time broadcasts (risk-update, satellite-positions) |
 | `satellite.js` | ^5.0 | SGP4/SDP4 orbital propagation | `twoline2satrec()` with 3LE format; the standard for JS orbit math |
 | `axios` | ^1.7 | HTTP client | Proxies requests to agent service |
+| `@prisma/client` | ^6.6 | PostgreSQL ORM | Persists alert history, conjunction events, satellite risk alerts |
+| `prisma` | ^6.6 | ORM CLI + migrations | Schema migrations and Prisma Client generation |
+| `helmet` | ^8.1 | Security headers | Sets `X-Content-Type-Options`, `X-Frame-Options`, etc. |
+| `express-rate-limit` | ^8.3 | API rate limiting | 120 req/min per IP on all `/api/v1/*` routes |
+| `zod` | ^4.3 | Runtime validation | Validates agent push payload before storing |
 | `node-cache` | ^5.1 | In-memory TLE cache | 2-hour TTL for TLE data |
 | `cors` | ^2.8 | CORS middleware | Required: frontend on Vite dev server (different port) |
 | `dotenv` | ^16.4 | Environment variable loading | Loads shared `.env` from monorepo root |
@@ -84,7 +89,7 @@
 
 | Component | MVP Choice | Rationale | Post-MVP Path |
 |-----------|-----------|-----------|---------------|
-| **Database** | None (in-memory) | Zero setup; data is ephemeral | PostgreSQL + Prisma ORM |
+| **Database** | PostgreSQL + Prisma ORM (gateway) | Persists alert history, conjunction events, satellite risk alerts across restarts | Redis for caching at scale |
 | **Cache** | node-cache | In-memory TTL; sub-ms reads | Redis for horizontal scaling |
 | **Message queue** | None (node-cron) | In-process scheduling sufficient | BullMQ for LLM request queue |
 | **Search** | None | Not needed for MVP | — |
@@ -95,9 +100,10 @@
 
 | Component | Tool | Status |
 |-----------|------|--------|
-| **CI/CD** | GitHub Actions (`.github/workflows/lint.yml`) | Active — lint + format on push/PR |
-| **Containerization** | None | Skipped for MVP |
-| **Monitoring** | Console logging with `[Module]` prefixes | Structured JSON post-MVP |
+| **CI/CD** | GitHub Actions (`.github/workflows/ci.yml`) | Active — lint + format + unit tests + coverage + build + Docker image verification |
+| **Containerization** | Docker + docker-compose | Multi-stage Dockerfiles per service; `docker compose up` for full stack |
+| **Testing** | Vitest (v4.1) | 156 tests across 8 test files; coverage via `@vitest/coverage-v8` |
+| **Monitoring** | Structured pino logging with `{ component }` child loggers | Production-ready |
 | **Error tracking** | None | Sentry post-MVP |
 
 ---
@@ -118,11 +124,13 @@
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
+| `DATABASE_URL` | Yes (gateway) | — | PostgreSQL connection string |
 | `GATEWAY_PORT` | No | `3001` | Gateway service port |
 | `AGENT_PORT` | No | `3002` | Agent service port |
 | `GATEWAY_URL` | No | `http://localhost:3001` | Gateway URL for agent push |
 | `AGENT_URL` | No | `http://localhost:3002` | Agent URL for gateway proxy |
 | `NASA_API_KEY` | Yes | — | NASA API key (free at api.nasa.gov) |
 | `ANTHROPIC_API_KEY` | No | — | Claude API key for LLM briefs (fallback without it) |
-| `INTERNAL_SECRET` | No | dev key | Shared secret for agent -> gateway auth |
+| `API_KEY` | Production | dev key | API key for public route auth (`x-api-key` header); bypassed when `NODE_ENV=development` |
+| `INTERNAL_SECRET` | Yes | dev key | Shared secret for agent -> gateway auth (always enforced) |
 | `VITE_GATEWAY_URL` | No | `http://localhost:3001` | Gateway URL for frontend |

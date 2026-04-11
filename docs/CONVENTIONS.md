@@ -46,7 +46,7 @@ packages/
 
 | Context | Convention | Examples |
 |---------|-----------|----------|
-| API route paths | kebab-case | `/api/space-weather`, `/api/agent/brief` |
+| API route paths | kebab-case with `/api/v1/` prefix | `/api/v1/space-weather`, `/api/v1/agent/brief` |
 | Environment variables | UPPER_SNAKE_CASE | `NASA_API_KEY`, `INTERNAL_SECRET` |
 | Cache keys | dash-delimited | `swpc-xray`, `donki-flares`, `swpc-mag` |
 | Risk levels | Uppercase constants | `LOW`, `MODERATE`, `HIGH`, `CRITICAL` |

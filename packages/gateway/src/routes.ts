@@ -203,9 +203,9 @@ export function createRouter(
     });
 
     // -----------------------------------------------------------------------
-    // GET /api/status
+    // GET /api/v1/status
     // -----------------------------------------------------------------------
-    router.get('/api/status', (_req: Request, res: Response) => {
+    router.get('/api/v1/status', (_req: Request, res: Response) => {
         const state = getLatestState();
         res.json({
             risk: state.risk,
@@ -217,9 +217,9 @@ export function createRouter(
     });
 
     // -----------------------------------------------------------------------
-    // GET /api/satellites
+    // GET /api/v1/satellites
     // -----------------------------------------------------------------------
-    router.get('/api/satellites', (req: Request, res: Response) => {
+    router.get('/api/v1/satellites', (req: Request, res: Response) => {
         const enriched = getEnrichedPositions();
         const total = enriched.length;
         const perPage = 150;
@@ -241,18 +241,18 @@ export function createRouter(
     });
 
     // -----------------------------------------------------------------------
-    // GET /api/satellites/top-risk
+    // GET /api/v1/satellites/top-risk
     // -----------------------------------------------------------------------
-    router.get('/api/satellites/top-risk', (req: Request, res: Response) => {
+    router.get('/api/v1/satellites/top-risk', (req: Request, res: Response) => {
         const count = Math.min(parseInt(req.query.count as string) || 20, 100);
         const topRisk = getTopRisk().slice(0, count);
         res.json({ count: topRisk.length, satellites: topRisk });
     });
 
     // -----------------------------------------------------------------------
-    // GET /api/satellites/risk-stats
+    // GET /api/v1/satellites/risk-stats
     // -----------------------------------------------------------------------
-    router.get('/api/satellites/risk-stats', (_req: Request, res: Response) => {
+    router.get('/api/v1/satellites/risk-stats', (_req: Request, res: Response) => {
         const enriched = getEnrichedPositions();
         const stats = {
             total: enriched.length,
@@ -277,9 +277,9 @@ export function createRouter(
     });
 
     // -----------------------------------------------------------------------
-    // GET /api/satellites/:noradId
+    // GET /api/v1/satellites/:noradId
     // -----------------------------------------------------------------------
-    router.get('/api/satellites/:noradId', (req: Request, res: Response) => {
+    router.get('/api/v1/satellites/:noradId', (req: Request, res: Response) => {
         const noradId = parseInt(req.params.noradId, 10);
         if (isNaN(noradId)) {
             res.status(400).json({ error: 'Invalid NORAD ID' });
@@ -296,10 +296,10 @@ export function createRouter(
     });
 
     // -----------------------------------------------------------------------
-    // GET /api/satellites/:noradId/risk
+    // GET /api/v1/satellites/:noradId/risk
     // -----------------------------------------------------------------------
     router.get(
-        '/api/satellites/:noradId/risk',
+        '/api/v1/satellites/:noradId/risk',
         (req: Request, res: Response) => {
             const noradId = parseInt(req.params.noradId, 10);
             if (isNaN(noradId)) {
@@ -330,9 +330,9 @@ export function createRouter(
     );
 
     // -----------------------------------------------------------------------
-    // GET /api/alerts
+    // GET /api/v1/alerts
     // -----------------------------------------------------------------------
-    router.get('/api/alerts', async (_req: Request, res: Response) => {
+    router.get('/api/v1/alerts', async (_req: Request, res: Response) => {
         try {
             const alerts = await getAlertHistory();
             res.json(alerts);
@@ -343,25 +343,25 @@ export function createRouter(
     });
 
     // -----------------------------------------------------------------------
-    // GET /api/space-weather
+    // GET /api/v1/space-weather
     // -----------------------------------------------------------------------
-    router.get('/api/space-weather', (_req: Request, res: Response) => {
+    router.get('/api/v1/space-weather', (_req: Request, res: Response) => {
         const weather = getLatestSpaceWeather();
         res.json(weather);
     });
 
     // -----------------------------------------------------------------------
-    // GET /api/events — active EONET events with coordinates
+    // GET /api/v1/events — active EONET events with coordinates
     // -----------------------------------------------------------------------
-    router.get('/api/events', (_req: Request, res: Response) => {
+    router.get('/api/v1/events', (_req: Request, res: Response) => {
         const events = getLatestEonetEvents();
         res.json({ count: events.length, events });
     });
 
     // -----------------------------------------------------------------------
-    // GET /api/agent/brief
+    // GET /api/v1/agent/brief
     // -----------------------------------------------------------------------
-    router.get('/api/agent/brief', (_req: Request, res: Response) => {
+    router.get('/api/v1/agent/brief', (_req: Request, res: Response) => {
         const brief = getLatestBrief();
         if (!brief) {
             res.status(404).json({ error: 'No brief available' });
@@ -371,9 +371,9 @@ export function createRouter(
     });
 
     // -----------------------------------------------------------------------
-    // POST /api/agent/brief — proxy to agent
+    // POST /api/v1/agent/brief — proxy to agent
     // -----------------------------------------------------------------------
-    router.post('/api/agent/brief', async (_req: Request, res: Response) => {
+    router.post('/api/v1/agent/brief', async (_req: Request, res: Response) => {
         try {
             const response = await axios.post(
                 `${AGENT_URL}/brief/generate`,
@@ -397,9 +397,9 @@ export function createRouter(
     });
 
     // -----------------------------------------------------------------------
-    // GET /api/agent/health — proxy to agent
+    // GET /api/v1/agent/health — proxy to agent
     // -----------------------------------------------------------------------
-    router.get('/api/agent/health', async (_req: Request, res: Response) => {
+    router.get('/api/v1/agent/health', async (_req: Request, res: Response) => {
         try {
             const response = await axios.get(`${AGENT_URL}/health`, {
                 timeout: 5_000,
@@ -415,10 +415,10 @@ export function createRouter(
     });
 
     // -----------------------------------------------------------------------
-    // GET /api/agent/call-history — proxy to agent
+    // GET /api/v1/agent/call-history — proxy to agent
     // -----------------------------------------------------------------------
     router.get(
-        '/api/agent/call-history',
+        '/api/v1/agent/call-history',
         async (_req: Request, res: Response) => {
             try {
                 const response = await axios.get(
@@ -439,10 +439,10 @@ export function createRouter(
     );
 
     // -----------------------------------------------------------------------
-    // POST /api/agent/test-call — proxy to agent
+    // POST /api/v1/agent/test-call — proxy to agent
     // -----------------------------------------------------------------------
     router.post(
-        '/api/agent/test-call',
+        '/api/v1/agent/test-call',
         async (_req: Request, res: Response) => {
             try {
                 const response = await axios.post(
@@ -468,9 +468,9 @@ export function createRouter(
     );
 
     // -----------------------------------------------------------------------
-    // GET /api/conjunctions — active conjunctions
+    // GET /api/v1/conjunctions — active conjunctions
     // -----------------------------------------------------------------------
-    router.get('/api/conjunctions', (req: Request, res: Response) => {
+    router.get('/api/v1/conjunctions', (req: Request, res: Response) => {
         let conjunctions = getLatestConjunctions();
         const { severity, noradId, limit } = req.query;
 
@@ -498,9 +498,9 @@ export function createRouter(
     });
 
     // -----------------------------------------------------------------------
-    // GET /api/conjunctions/:noradId — conjunctions for a specific satellite
+    // GET /api/v1/conjunctions/:noradId — conjunctions for a specific satellite
     // -----------------------------------------------------------------------
-    router.get('/api/conjunctions/:noradId', (req: Request, res: Response) => {
+    router.get('/api/v1/conjunctions/:noradId', (req: Request, res: Response) => {
         const noradId = parseInt(req.params.noradId, 10);
         if (isNaN(noradId)) {
             res.status(400).json({ error: 'Invalid NORAD ID' });
@@ -515,9 +515,9 @@ export function createRouter(
     });
 
     // -----------------------------------------------------------------------
-    // GET /api/conjunctions/history — historical events from DB
+    // GET /api/v1/conjunctions/history — historical events from DB
     // -----------------------------------------------------------------------
-    router.get('/api/conjunctions/history', async (req: Request, res: Response) => {
+    router.get('/api/v1/conjunctions/history', async (req: Request, res: Response) => {
         try {
             const since = req.query.since
                 ? new Date(String(req.query.since))
@@ -615,9 +615,9 @@ export function createRouter(
     });
 
     // -----------------------------------------------------------------------
-    // GET /api/flare-path-predictions — active CME path predictions
+    // GET /api/v1/flare-path-predictions — active CME path predictions
     // -----------------------------------------------------------------------
-    router.get('/api/flare-path-predictions', (_req: Request, res: Response) => {
+    router.get('/api/v1/flare-path-predictions', (_req: Request, res: Response) => {
         const predictions = getFlarePathPredictions();
         const active = predictions.filter(
             (p) => new Date(p.arrivalWindowEnd) >= new Date(),

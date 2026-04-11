@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { z } from 'zod';
 
 import { logger } from '../logger';
 import { upsertEonetEvents, updatePollStatus } from '../dataCache';
@@ -7,14 +8,28 @@ const log = logger.child({ component: 'EONET' });
 
 const EONET_URL = 'https://eonet.gsfc.nasa.gov/api/v3/events';
 
-interface EonetApiEvent {
-    id: string;
-    title: string;
-    categories: Array<{ id: string; title: string }>;
-    sources: Array<{ id: string; url: string }>;
-    geometry: Array<{ date: string; type: string; coordinates: number[] }>;
-    link: string;
-}
+// ---------------------------------------------------------------------------
+// Zod schema for EONET API response validation
+// ---------------------------------------------------------------------------
+
+const eonetEventSchema = z.object({
+    id: z.string(),
+    title: z.string(),
+    categories: z.array(z.object({ id: z.string(), title: z.string() })),
+    sources: z.array(z.object({ id: z.string(), url: z.string() })),
+    geometry: z.array(z.object({
+        date: z.string(),
+        type: z.string(),
+        coordinates: z.array(z.number()),
+    })),
+    link: z.string(),
+});
+
+const eonetResponseSchema = z.object({
+    events: z.array(eonetEventSchema).default([]),
+});
+
+type EonetApiEvent = z.infer<typeof eonetEventSchema>;
 
 export async function pollEONET(): Promise<void> {
     log.info('Polling open EONET events');
@@ -25,7 +40,13 @@ export async function pollEONET(): Promise<void> {
             timeout: 15_000,
         });
 
-        const events: EonetApiEvent[] = response.data?.events ?? [];
+        const validated = eonetResponseSchema.safeParse(response.data);
+        if (!validated.success) {
+            log.warn({ err: validated.error.issues[0]?.message }, 'EONET response failed schema validation');
+        }
+        const events: EonetApiEvent[] = validated.success
+            ? validated.data.events
+            : (response.data?.events ?? []);
 
         const normalized = events.map((e) => {
             const latestGeometry = e.geometry?.[e.geometry.length - 1];

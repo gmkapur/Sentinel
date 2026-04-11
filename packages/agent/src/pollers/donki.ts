@@ -1,8 +1,29 @@
 import axios from 'axios';
+import { z } from 'zod';
 
 import type { DONKIFlare, DONKICME } from '@sentinel/shared';
 import { logger } from '../logger';
 import { upsertFlares, upsertCMEs, updatePollStatus } from '../dataCache';
+
+// ---------------------------------------------------------------------------
+// Zod schemas for DONKI API response validation
+// ---------------------------------------------------------------------------
+
+const donkiFlareItemSchema = z.object({
+    flrID: z.string(),
+    classType: z.string(),
+    beginTime: z.string(),
+    peakTime: z.string(),
+    endTime: z.string().nullable().optional(),
+    sourceLocation: z.string().nullable().optional(),
+});
+
+const donkiCmeItemSchema = z.object({
+    activityID: z.string(),
+    startTime: z.string(),
+    type: z.string().optional(),
+    cmeAnalyses: z.array(z.record(z.unknown())).nullable().optional(),
+});
 
 const log = logger.child({ component: 'DONKI' });
 
@@ -32,16 +53,23 @@ async function fetchFlares(): Promise<DONKIFlare[]> {
 
     if (!Array.isArray(response.data)) return [];
 
-    return response.data.map(
-        (f: Record<string, unknown>): DONKIFlare => ({
-            flrID: String(f.flrID ?? ''),
-            classType: String(f.classType ?? ''),
-            beginTime: String(f.beginTime ?? ''),
-            peakTime: String(f.peakTime ?? ''),
-            endTime: f.endTime ? String(f.endTime) : null,
-            sourceLocation: String(f.sourceLocation ?? ''),
-        }),
-    );
+    const flares: DONKIFlare[] = [];
+    for (const raw of response.data) {
+        const parsed = donkiFlareItemSchema.safeParse(raw);
+        if (parsed.success) {
+            flares.push({
+                flrID: parsed.data.flrID,
+                classType: parsed.data.classType,
+                beginTime: parsed.data.beginTime,
+                peakTime: parsed.data.peakTime,
+                endTime: parsed.data.endTime ?? null,
+                sourceLocation: String(parsed.data.sourceLocation ?? ''),
+            });
+        } else {
+            log.warn({ err: parsed.error.issues[0]?.message }, 'Skipping malformed DONKI flare record');
+        }
+    }
+    return flares;
 }
 
 async function fetchCMEs(): Promise<DONKICME[]> {
@@ -54,16 +82,23 @@ async function fetchCMEs(): Promise<DONKICME[]> {
 
     if (!Array.isArray(response.data)) return [];
 
-    return response.data.map(
-        (c: Record<string, unknown>): DONKICME => ({
-            activityID: String(c.activityID ?? ''),
-            startTime: String(c.startTime ?? ''),
-            speed: c.cmeAnalyses
-                ? extractCMESpeed(c.cmeAnalyses as Record<string, unknown>[])
-                : null,
-            type: String(c.type ?? 'unknown'),
-        }),
-    );
+    const cmes: DONKICME[] = [];
+    for (const raw of response.data) {
+        const parsed = donkiCmeItemSchema.safeParse(raw);
+        if (parsed.success) {
+            cmes.push({
+                activityID: parsed.data.activityID,
+                startTime: parsed.data.startTime,
+                speed: parsed.data.cmeAnalyses
+                    ? extractCMESpeed(parsed.data.cmeAnalyses as Record<string, unknown>[])
+                    : null,
+                type: String(parsed.data.type ?? 'unknown'),
+            });
+        } else {
+            log.warn({ err: parsed.error.issues[0]?.message }, 'Skipping malformed DONKI CME record');
+        }
+    }
+    return cmes;
 }
 
 function extractCMESpeed(analyses: Record<string, unknown>[]): number | null {

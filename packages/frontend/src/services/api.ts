@@ -30,19 +30,19 @@ async function fetchJson<T>(url: string, options?: RequestInit): Promise<T> {
 }
 
 export const api = {
-    getStatus: () => fetchJson<StatusResponse>('/api/status'),
-    getSatellites: () => fetchJson<SatellitesResponse>('/api/satellites'),
-    getAlerts: () => fetchJson<AlertRecord[]>('/api/alerts'),
-    getSpaceWeather: () => fetchJson<SpaceWeatherState>('/api/space-weather'),
-    getBrief: () => fetchJson<MissionBrief>('/api/agent/brief'),
+    getStatus: () => fetchJson<StatusResponse>('/api/v1/status'),
+    getSatellites: () => fetchJson<SatellitesResponse>('/api/v1/satellites'),
+    getAlerts: () => fetchJson<AlertRecord[]>('/api/v1/alerts'),
+    getSpaceWeather: () => fetchJson<SpaceWeatherState>('/api/v1/space-weather'),
+    getBrief: () => fetchJson<MissionBrief>('/api/v1/agent/brief'),
     regenerateBrief: () =>
-        fetchJson<MissionBrief>('/api/agent/brief', { method: 'POST' }),
-    getAgentHealth: () => fetchJson<any>('/api/agent/health'),
+        fetchJson<MissionBrief>('/api/v1/agent/brief', { method: 'POST' }),
+    getAgentHealth: () => fetchJson<any>('/api/v1/agent/health'),
     getSatelliteRisk: (noradId: number) =>
-        fetchJson<SatRiskBreakdown>(`/api/satellites/${noradId}/risk`),
+        fetchJson<SatRiskBreakdown>(`/api/v1/satellites/${noradId}/risk`),
     getTopRiskSatellites: (count = 20) =>
         fetchJson<{ count: number; satellites: SatRiskSummary[] }>(
-            `/api/satellites/top-risk?count=${count}`,
+            `/api/v1/satellites/top-risk?count=${count}`,
         ),
     getRiskStats: () =>
         fetchJson<{
@@ -51,5 +51,5 @@ export const api = {
             byRegime: Record<string, number>;
             topRisk: SatRiskSummary[];
             timestamp: string;
-        }>('/api/satellites/risk-stats'),
+        }>('/api/v1/satellites/risk-stats'),
 };
