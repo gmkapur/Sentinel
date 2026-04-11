@@ -1,0 +1,27 @@
+{
+  "name": "sentinel",
+  "private": true,
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "lint": "eslint packages/*/src/**/*.ts packages/*/src/**/*.tsx",
+    "lint:fix": "eslint --fix packages/*/src/**/*.ts packages/*/src/**/*.tsx",
+    "format:check": "prettier --check packages/*/src/**/*.ts packages/*/src/**/*.tsx",
+    "format": "prettier --write packages/*/src/**/*.ts packages/*/src/**/*.tsx",
+    "postinstall": "husky"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.25.0",
+    "@typescript-eslint/parser": "^8.58.1",
+    "eslint": "^9.25.0",
+    "eslint-config-prettier": "^10.1.2",
+    "eslint-plugin-react": "^7.37.5",
+    "eslint-plugin-react-hooks": "^5.2.0",
+    "globals": "^16.0.0",
+    "husky": "^9.1.7",
+    "prettier": "^3.5.3",
+    "typescript": "^5.8.3",
+    "typescript-eslint": "^8.30.1"
+  }
+}

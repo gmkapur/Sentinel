@@ -8,20 +8,25 @@
 │  Express + Socket.io            │◄─http─│  Express (lightweight router)            │
 │                                 │       │                                          │
 │  • Client-facing REST API       │       │  • Cron-scheduled data pollers           │
-│  • WebSocket hub → frontend     │       │  • In-memory multi-source data cache     │
-│  • Satellite position engine    │       │  • Risk scoring engine (fusion)          │
-│  • Proxies agent intelligence   │       │  • Claude LLM reasoning layer            │
-│  • TLE cache + SGP4 propagation │       │  • Pushes alerts → Gateway via HTTP      │
-└────────────┬────────────────────┘       └──────────────┬───────────────────────────┘
-             │ Socket.io                                 │ axios (cron-scheduled)
-             ▼                                           ▼
-        React Frontend                        NASA DONKI / NOAA SWPC /
-        (react-globe.gl + satellite.js)       CelesTrak / NeoWs / Claude API
+│  • WebSocket hub → frontend     │       │    (SWPC, DONKI, NeoWs, EONET)          │
+│  • Satellite position engine    │       │  • In-memory multi-source data cache     │
+│  • Proxies agent intelligence   │       │  • Risk scoring engine (fusion)          │
+│  • TLE cache + SGP4 propagation │       │  • Claude LLM reasoning layer            │
+└────────────┬────────────────────┘       │  • Pushes state → Gateway via HTTP      │
+             │ Socket.io                  └──────────────┬───────────────────────────┘
+             ▼                                           │ axios (cron-scheduled)
+        React Frontend                                   ▼
+        (react-globe.gl + satellite.js)       NASA DONKI / NOAA SWPC /
+                                              NeoWs / EONET / Claude API
 ```
 
 **Inter-service communication:** The agent POSTs fused risk state + LLM briefs to the gateway's internal endpoint (`POST /internal/agent-push`), authenticated by a shared `INTERNAL_SECRET` header. The gateway broadcasts to all connected frontends via Socket.io. The gateway can also pull from the agent on-demand (`GET :3002/status`, `GET :3002/brief`).
 
 ## Core Components
+
+### Shared Types — `packages/shared/types.ts`
+
+Shared TypeScript interfaces used by both backend services. Defines all domain types: `RiskState`, `RiskLevel`, `RiskBreakdown`, `SpaceWeatherState`, `MissionBrief`, `DONKIFlare`, `DONKICME`, `NEOObject`, `SatPosition`, `AgentPushPayload`, `AlertRecord`, and more.
 
 ### Service 1 — Gateway (`:3001`)
 
@@ -30,10 +35,9 @@ The client-facing service. Owns the WebSocket, serves satellite positions, and r
 - **Purpose**: Serve the frontend via REST + WebSocket, compute satellite positions, proxy agent data
 - **Entrypoint**: `packages/gateway/src/index.ts`
 - **Key files**:
-  - `packages/gateway/src/routes.ts` — REST API routes
-  - `packages/gateway/src/satellites.ts` — TLE cache + SGP4 propagation
-  - `packages/gateway/src/socketHub.ts` — Socket.io event management
-  - `packages/gateway/src/agentProxy.ts` — Proxy routes to agent service
+  - `packages/gateway/src/routes.ts` — REST API routes + internal agent-push endpoint
+  - `packages/gateway/src/satellites.ts` — TLE cache + SGP4 propagation via satellite.js
+  - `packages/gateway/src/agentState.ts` — In-memory store for latest agent push + alert history
 - **Depends on**: CelesTrak (TLE data), Agent service (risk state + briefs)
 - **Depended on by**: React Frontend
 
@@ -42,27 +46,27 @@ The client-facing service. Owns the WebSocket, serves satellite positions, and r
 | Route | Method | Purpose |
 |-------|--------|---------|
 | `/api/satellites` | GET | Current positions for all tracked satellites (SGP4-propagated from cached TLEs) |
-| `/api/satellites/:noradId` | GET | Single satellite position + orbital metadata |
-| `/api/status` | GET | Current global risk level, score, breakdown |
-| `/api/alerts` | GET | Alert history (relayed from agent) |
-| `/api/space-weather` | GET | Latest cached SWPC data |
-| `/api/agent/brief` | GET | Latest LLM-generated mission brief (proxied from agent `:3002/brief`) |
+| `/api/satellites/:noradId` | GET | Single satellite position + TLE lines |
+| `/api/status` | GET | Current global risk level, score, breakdown, brief, space weather, satellite count |
+| `/api/alerts` | GET | Alert history (stored on risk level changes) |
+| `/api/space-weather` | GET | Latest cached SWPC data from agent |
+| `/api/agent/brief` | GET | Latest LLM-generated mission brief (local cache or proxied from agent) |
 | `/api/agent/brief` | POST | Force on-demand brief generation (proxied to agent `:3002/brief/generate`) |
 | `/api/agent/health` | GET | Agent service health (proxied from agent `:3002/health`) |
-| `/internal/agent-push` | POST | **Internal only.** Receives risk state + briefs from agent. Validates `x-internal-secret` header. Broadcasts via Socket.io. |
+| `/internal/agent-push` | POST | **Internal only.** Receives risk state + briefs from agent. Validates `x-internal-secret` header. Triggers Socket.io broadcast. |
 
 #### Socket.io Events (emitted to frontend)
 
 | Event | Payload | Trigger |
 |-------|---------|---------|
 | `risk-update` | `{ score, level, breakdown, timestamp }` | Every agent evaluation cycle (~5 min) |
-| `risk-alert` | `{ level, score, alerts[], brief, timestamp }` | Risk level threshold crossing |
-| `satellite-positions` | `[{ id, name, lat, lng, alt, velocity }]` | Every 10s via `setInterval` |
+| `risk-alert` | `{ level, score, brief, timestamp }` | Risk level threshold crossing |
+| `satellite-positions` | `[{ id, name, lat, lng, alt }]` | Every 10s via `setInterval` + on client connect |
 | `space-weather` | `{ xray, kp, protonFlux, solarWind, bz }` | On new SWPC data from agent |
 
 #### Satellite Position Engine
 
-The gateway owns TLE caching and SGP4 propagation (not the agent) because position computation is latency-sensitive and tightly coupled to the frontend render loop. TLEs are fetched from CelesTrak every 2 hours by the gateway itself.
+The gateway owns TLE caching and SGP4 propagation (not the agent) because position computation is latency-sensitive and tightly coupled to the frontend render loop. TLEs are fetched from CelesTrak every 2 hours by the gateway itself using 3LE format and propagated with `satellite.twoline2satrec()`.
 
 ### Service 2 — Agent (`:3002`)
 
@@ -71,24 +75,28 @@ The autonomous reasoning engine. Runs independently, polls all external data sou
 - **Purpose**: Ingest space weather data, fuse signals into risk scores, generate LLM mission briefs, push state to gateway
 - **Entrypoint**: `packages/agent/src/index.ts`
 - **Key files**:
-  - `packages/agent/src/router.ts` — 5-route lightweight API (health, status, brief, brief/generate, data/:source)
-  - `packages/agent/src/pollers.ts` — Cron-scheduled data ingestion
+  - `packages/agent/src/router.ts` — Lightweight API routes (health, status, brief, data/:source, space-weather)
+  - `packages/agent/src/pollers/swpc.ts` — SWPC poller (X-ray, Kp, protons, solar wind, mag, alerts)
+  - `packages/agent/src/pollers/donki.ts` — DONKI poller (flares, CMEs, geomagnetic storms)
+  - `packages/agent/src/pollers/neows.ts` — NeoWs NEO tracking poller
+  - `packages/agent/src/pollers/eonet.ts` — EONET natural events poller
   - `packages/agent/src/dataCache.ts` — node-cache wrapper with source-specific TTLs
   - `packages/agent/src/riskEngine.ts` — Multi-source fusion scoring engine
   - `packages/agent/src/llmBrief.ts` — Claude API integration for mission briefs
   - `packages/agent/src/push.ts` — HTTP push to gateway
-- **Depends on**: External APIs (SWPC, DONKI, CelesTrak, NeoWs), Claude API
+- **Depends on**: External APIs (SWPC, DONKI, NeoWs, EONET), Claude API (optional)
 - **Depended on by**: Gateway service
 
-#### Agent API (lightweight — 5 routes, no Socket.io)
+#### Agent API
 
 | Route | Method | Purpose |
 |-------|--------|---------|
-| `/health` | GET | Uptime, last poll timestamps per source, cache hit rates |
+| `/health` | GET | Uptime, last poll timestamps per source, cache stats |
 | `/status` | GET | Current risk score, level, raw signal breakdown |
 | `/brief` | GET | Latest LLM-generated mission brief |
 | `/brief/generate` | POST | Force on-demand brief generation (bypasses cron schedule) |
-| `/data/:source` | GET | Raw cached data by source (swpc-xray, swpc-kp, swpc-protons, swpc-wind, donki-flr, donki-cme, neows) |
+| `/data/:source` | GET | Raw cached data by source (swpc-xray, swpc-kp, swpc-protons, swpc-wind, swpc-mag, donki-flares, donki-cme, neows, eonet) |
+| `/space-weather` | GET | Processed space weather state (X-ray class, Kp value, proton flux, wind speed, Bz) |
 
 ### Risk Engine
 
@@ -102,22 +110,26 @@ The autonomous reasoning engine. Runs independently, polls all external data sou
 | Solar flare | X-class active | +40 |
 | Solar flare | M5–M9 | +25 |
 | Solar flare | M1–M4 | +15 |
+| Solar flare | C-class | +5 |
 | Geomagnetic storm | Kp ≥ 7 (G3+) | +30 |
 | Geomagnetic storm | Kp ≥ 5 (G1+) | +15 |
+| Geomagnetic storm | Kp ≥ 4 | +5 |
 | Radiation storm | Proton flux ≥ 100 pfu | +25 |
 | Radiation storm | Proton flux ≥ 10 pfu (S1) | +15 |
+| Radiation storm | Proton flux ≥ 1 pfu | +5 |
 | Solar wind | Speed > 700 km/s | +10 |
+| Solar wind | Speed > 500 km/s | +5 |
 | IMF Bz | Bz < −10 nT (southward) | +10 |
-| NEO close approach | PHA within 0.05 AU in next 7d | +5 |
+| IMF Bz | Bz < −5 nT | +5 |
+| NEO close approach | PHA within next 7d | +5 |
 
 **Compound rules (synergistic bonuses):**
 
 | Combination | Bonus | Rationale |
 |-------------|-------|-----------|
 | M5+ flare AND Kp ≥ 5 | +15 | CME-driven storm confirmation |
-| M5+ flare AND LEO satellite on sunlit side | +20 | Direct radiation exposure window |
 | Kp ≥ 7 AND proton flux ≥ 100 pfu | +20 | Severe radiation + atmospheric drag |
-| CME earth-directed AND speed > 1000 km/s | +15 | Fast CME → short reaction window |
+| M5+ flare active | +10 | LEO sunlit radiation exposure window |
 
 **Score → level mapping:** `LOW` (0–19) · `MODERATE` (20–39) · `HIGH` (40–69) · `CRITICAL` (70–100)
 
@@ -126,12 +138,15 @@ The autonomous reasoning engine. Runs independently, polls all external data sou
 - **Purpose**: Generate structured go/no-go mission briefs using Claude Sonnet with full fused data context
 - **Location**: `packages/agent/src/llmBrief.ts`
 - **Model**: `claude-sonnet-4-20250514`
+- **API**: Direct HTTP to `https://api.anthropic.com/v1/messages` via axios
 
 **Trigger conditions for LLM call:**
 - Risk level changes (any direction)
 - Risk score shifts ±15 points since last brief
 - 30-minute heartbeat (baseline)
 - On-demand via `POST /brief/generate`
+
+**Fallback behavior:** Without `ANTHROPIC_API_KEY` set, `shouldGenerateBrief()` returns `false` and the system uses deterministic fallback briefs derived from the risk score/level.
 
 **Output format:** Structured JSON with `recommendation` (GO/CAUTION/NO-GO), `summary`, `threats[]`, `maneuver_windows[]`, and `confidence` score.
 
@@ -145,68 +160,75 @@ The autonomous reasoning engine. Runs independently, polls all external data sou
   - `packages/frontend/src/components/AlertPanel.tsx` — slide-out: active alerts + LLM brief
   - `packages/frontend/src/components/SpaceWeatherBar.tsx` — bottom HUD: Kp, X-ray, proton flux gauges
   - `packages/frontend/src/components/SatelliteInfoTooltip.tsx` — click-to-inspect satellite detail card
-  - `packages/frontend/src/hooks/useSocket.ts` — Socket.io connection management
+  - `packages/frontend/src/hooks/useSocket.ts` — Socket.io connection management + reactive state
   - `packages/frontend/src/hooks/useSatellites.ts` — Satellite position state
-  - `packages/frontend/src/types/index.ts` — Shared TypeScript interfaces
+  - `packages/frontend/src/types/index.ts` — Frontend TypeScript interfaces (synced from shared)
 - **Depends on**: Gateway REST API, Gateway WebSocket
 
 ## Data Flow
 
 ### Agent Evaluation Cycle
-1. node-cron triggers pollers on schedule (SWPC: 5 min, DONKI: 15 min, CelesTrak: 2 hours, NeoWs: daily)
+1. node-cron triggers pollers on schedule (SWPC: 5 min, DONKI: 15 min, NeoWs: daily, EONET: hourly)
 2. Pollers fetch JSON from external APIs via axios
-3. Responses are stored in node-cache with source-specific TTLs
-4. `riskEngine.evaluate()` runs every 5 minutes, reads all cached data, computes composite score
+3. Responses are stored in node-cache with source-specific TTLs (SWPC: 300s, DONKI: 900s, NeoWs: 86400s, EONET: 3600s)
+4. `riskEngine.evaluate()` runs every 5 minutes (offset by 1 min to let pollers finish), reads all cached data, computes composite score
 5. If LLM trigger fires (level change, ±15 score delta, 30-min heartbeat), calls Claude for mission brief
-6. Agent POSTs fused risk state + brief to gateway's `/internal/agent-push`
-7. Gateway validates `x-internal-secret` header, broadcasts via Socket.io
+6. Agent POSTs `AgentPushPayload` (risk state, brief, space weather, flares, CMEs, NEOs) to gateway's `/internal/agent-push`
+7. Gateway validates `x-internal-secret` header, stores state in `agentState.ts`, broadcasts via Socket.io
 
 ### Gateway Satellite Loop
-1. Gateway fetches OMM/JSON TLEs from CelesTrak every 2 hours
-2. Every 10s, SGP4 propagates all cached TLEs to current positions
-3. Socket.io emits `satellite-positions` to all connected frontends
+1. Gateway fetches 3LE TLEs from CelesTrak every 2 hours (`stations` and `active` groups)
+2. TLEs are deduplicated by NORAD ID across groups
+3. Every 10s, SGP4 propagates all cached TLEs to current lat/lng/alt positions
+4. Socket.io emits `satellite-positions` to all connected frontends
 
 ### Frontend Rendering
 1. On load, frontend connects Socket.io and fetches `/api/status` for initial state
 2. Socket.io events (`risk-update`, `risk-alert`, `satellite-positions`, `space-weather`) drive reactive UI updates
 3. react-globe.gl renders satellite particles at propagated positions
-4. `RiskBanner` shows current GO/CAUTION/NO-GO recommendation
+4. `RiskBanner` shows current GO/CAUTION/NO-GO recommendation with risk score
 5. `AlertPanel` displays LLM-generated mission brief with threat details
 
 ## Data Storage
 - **Primary storage**: In-memory via node-cache in both services (no database for MVP)
-- **Cache TTLs**: SWPC = 300s, DONKI = 900s, TLEs = 7200s, NeoWs = 86400s
+- **Cache TTLs**: SWPC = 300s, DONKI = 900s, TLEs = 7200s, NeoWs = 86400s, EONET = 3600s
 - **Persistence**: None — data is re-fetched on restart from live APIs
-- **Alert history**: In-memory array in gateway (lost on restart)
+- **Alert history**: In-memory array in gateway (max 100 records, lost on restart)
 
 ## Project Structure
 
 ```
-orbit-sentinel/
+sentinel/
 ├── packages/
-│   ├── gateway/                 # Service 1 — port 3001
+│   ├── shared/                   # Shared types
+│   │   └── types.ts              # All TypeScript interfaces
+│   │
+│   ├── gateway/                  # Service 1 — port 3001
 │   │   ├── src/
-│   │   │   ├── index.ts         # Express + Socket.io server
-│   │   │   ├── routes.ts        # REST API routes
-│   │   │   ├── satellites.ts    # TLE cache + SGP4 propagation
-│   │   │   ├── socketHub.ts     # Socket.io event management
-│   │   │   └── agentProxy.ts    # Proxy routes to agent service
+│   │   │   ├── index.ts          # Express + Socket.io server + TLE refresh
+│   │   │   ├── routes.ts         # REST API routes + internal agent-push
+│   │   │   ├── satellites.ts     # TLE cache + SGP4 propagation
+│   │   │   └── agentState.ts     # In-memory agent state + alert history
 │   │   ├── package.json
 │   │   └── tsconfig.json
 │   │
-│   ├── agent/                   # Service 2 — port 3002
+│   ├── agent/                    # Service 2 — port 3002
 │   │   ├── src/
-│   │   │   ├── index.ts         # Express server entry
-│   │   │   ├── router.ts        # 5-route lightweight API
-│   │   │   ├── pollers.ts       # Cron-scheduled data ingestion
-│   │   │   ├── dataCache.ts     # node-cache wrapper with TTLs
-│   │   │   ├── riskEngine.ts    # Fusion scoring engine
-│   │   │   ├── llmBrief.ts      # Claude API integration
-│   │   │   └── push.ts          # HTTP push to gateway
+│   │   │   ├── index.ts          # Express server + cron scheduling + initial fetch
+│   │   │   ├── router.ts         # Lightweight API routes
+│   │   │   ├── pollers/
+│   │   │   │   ├── swpc.ts       # NOAA SWPC (X-ray, Kp, protons, solar wind, mag)
+│   │   │   │   ├── donki.ts      # NASA DONKI (flares, CMEs, geomagnetic storms)
+│   │   │   │   ├── neows.ts      # NASA NeoWs (near-Earth objects)
+│   │   │   │   └── eonet.ts      # NASA EONET (natural events)
+│   │   │   ├── dataCache.ts      # node-cache wrapper with source-specific TTLs
+│   │   │   ├── riskEngine.ts     # Fusion scoring engine
+│   │   │   ├── llmBrief.ts       # Claude API integration
+│   │   │   └── push.ts           # HTTP push to gateway
 │   │   ├── package.json
 │   │   └── tsconfig.json
 │   │
-│   └── frontend/                # React app
+│   └── frontend/                 # React app (Vite)
 │       ├── src/
 │       │   ├── App.tsx
 │       │   ├── components/
@@ -223,21 +245,25 @@ orbit-sentinel/
 │       ├── package.json
 │       └── vite.config.ts
 │
-├── .env                         # Shared env vars
-├── package.json                 # Workspace root (npm workspaces)
-└── README.md
+├── docs/                         # Project documentation
+├── .env                          # Shared environment variables
+├── .github/workflows/lint.yml    # CI: lint + format check
+├── package.json                  # Workspace root (npm workspaces)
+├── tsconfig.json                 # Root TypeScript config
+├── eslint.config.mjs             # ESLint config
+└── .prettierrc                   # Prettier config
 ```
 
 ## External Dependencies
 
 | Service | Purpose | Consumer | Failure Impact |
 |---------|---------|----------|----------------|
-| NOAA SWPC | Real-time space weather (X-ray, Kp, protons, solar wind) | Agent | Risk scoring degraded — serve stale cache |
-| NASA DONKI | Space weather events (flares, CMEs, storms) | Agent | Event history unavailable — core scoring still works via SWPC |
-| CelesTrak | Satellite orbital elements (OMM/JSON) | Gateway + Agent | Satellite positions stale — globe shows last known positions |
+| NOAA SWPC | Real-time space weather (X-ray, Kp, protons, solar wind, Bz) | Agent | Risk scoring degraded — serve stale cache |
+| NASA DONKI | Space weather events (flares, CMEs, geomagnetic storms) | Agent | Event history unavailable — core scoring still works via SWPC |
+| CelesTrak | Satellite orbital elements (3LE format) | Gateway | Satellite positions stale — globe shows last known positions |
 | NASA NeoWs | Near-Earth object tracking | Agent | NEO layer unavailable — non-critical for core risk scoring |
-| NASA EONET | Natural event tracking (ground station risk) | Agent | Earth events layer unavailable — non-critical |
-| Claude API | LLM reasoning for mission briefs | Agent | Briefs unavailable — risk scores still computed, no plain-language output |
+| NASA EONET | Natural event tracking | Agent | Earth events layer unavailable — non-critical |
+| Claude API | LLM reasoning for mission briefs | Agent | Briefs use deterministic fallback — risk scores still computed |
 
 ## Environment Variables
 
@@ -249,12 +275,9 @@ AGENT_URL=http://localhost:3002
 # Agent
 AGENT_PORT=3002
 GATEWAY_URL=http://localhost:3001
-NASA_API_KEY=your_key_here          # api.nasa.gov (free, instant)
-ANTHROPIC_API_KEY=your_key_here     # Claude API key
-INTERNAL_SECRET=shared_secret_here  # Inter-service auth
-
-# Optional
-CELESTRAK_POLL_INTERVAL=7200000     # 2 hours in ms
+NASA_API_KEY=DEMO_KEY              # api.nasa.gov (free, instant)
+ANTHROPIC_API_KEY=                 # Claude API key (optional — fallback briefs without it)
+INTERNAL_SECRET=shared_secret_here # Inter-service auth header
 ```
 
 ## Key Design Decisions
@@ -275,7 +298,7 @@ CELESTRAK_POLL_INTERVAL=7200000     # 2 hours in ms
 - **Context**: Threshold-based dashboards lack contextual reasoning about compound threats
 - **Decision**: Use Claude Sonnet to generate structured go/no-go briefs from fused data
 - **Rationale**: Transforms raw scores into actionable intelligence with threat explanations and maneuver recommendations
-- **Trade-offs**: Adds API cost and latency; requires graceful degradation when API is unavailable
+- **Trade-offs**: Adds API cost and latency; requires graceful degradation when API is unavailable or key not set
 
 ### In-Memory Cache over Database
 - **Context**: MVP needs to store frequently-updated API data with TTLs
@@ -283,17 +306,11 @@ CELESTRAK_POLL_INTERVAL=7200000     # 2 hours in ms
 - **Rationale**: Zero infrastructure dependency, sub-millisecond reads, no setup time — data is ephemeral anyway
 - **Trade-offs**: Data lost on restart, no persistence, no horizontal scaling
 
-### JSON/OMM Format over Legacy TLE
-- **Context**: TLE text format has a 5-digit NORAD catalog number limit exhausting ~July 2026
-- **Decision**: Use JSON/OMM format from CelesTrak with satellite.js v7
-- **Rationale**: Future-proof against catalog number exhaustion, easier to parse, no string manipulation
-- **Trade-offs**: Slightly larger payload than compact TLE text
-
 ### Gateway Owns Satellite Propagation
 - **Context**: SGP4 propagation needs to run every 10s for smooth globe animation
 - **Decision**: Gateway fetches TLEs and runs satellite.js propagation locally, not through the agent
 - **Rationale**: Position computation is latency-sensitive and tightly coupled to the frontend render loop; avoids unnecessary inter-service hops for high-frequency data
-- **Trade-offs**: TLE fetching duplicated (agent fetches for risk context, gateway fetches for propagation)
+- **Trade-offs**: TLE fetching is separate from agent's data polling
 
 ### Globe.gl over CesiumJS
 - **Context**: Need 3D satellite visualization within a 6-hour sprint

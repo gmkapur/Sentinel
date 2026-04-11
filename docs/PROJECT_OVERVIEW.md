@@ -12,9 +12,10 @@ Orbit Sentinel exists to make satellite mission risk analysis accessible to ever
 
 ### Goals
 1. Build a working satellite risk analysis MVP in 6 hours using only free APIs
-2. Fuse data from multiple sources (SWPC, DONKI, CelesTrak) into a compound risk score (0–100)
+2. Fuse data from multiple sources (SWPC, DONKI, NeoWs, EONET) into a compound risk score (0–100) with compound synergy rules
 3. Provide real-time 3D globe visualization of satellite positions with risk overlays
 4. Deliver real-time alerts via WebSocket when risk levels change
+5. Generate LLM-powered mission briefs (go/no-go recommendations) using Claude, with deterministic fallback when API key is not configured
 
 ### Non-Goals
 1. Production-grade infrastructure (no Docker, no database persistence, no Redis)
@@ -23,11 +24,13 @@ Orbit Sentinel exists to make satellite mission risk analysis accessible to ever
 4. Comprehensive test coverage (MVP ships without tests)
 
 ## Success Metrics
-- All data pollers successfully fetch and cache data from SWPC, DONKI, and CelesTrak
+- All data pollers (SWPC, DONKI, NeoWs, EONET) successfully fetch and cache data on their cron schedules
 - Risk scoring engine produces accurate 0–100 scores using NOAA's established thresholds
-- 3D globe renders satellite positions updated in real-time via requestAnimationFrame
+- Agent pushes fused risk state + LLM briefs to gateway every 5 minutes
+- 3D globe renders satellite positions updated in real-time via Socket.io
 - WebSocket alerts fire within seconds of risk level changes
 - Application runs stably with graceful degradation when individual APIs are down
+- LLM briefs provide actionable go/no-go recommendations when Claude API key is configured
 
 ## Key Stakeholders
 - **Owner**: Solo developer / sprint team
@@ -37,7 +40,7 @@ Orbit Sentinel exists to make satellite mission risk analysis accessible to ever
 ## Project Status
 - **Phase**: MVP
 - **Started**: April 2026
-- **Target milestone**: 6-hour functional MVP with live data, risk scoring, and 3D visualization
+- **Target milestone**: 6-hour functional MVP with live data, risk scoring, LLM mission briefs, and 3D visualization
 
 ## Links
 - Repository: This repo
