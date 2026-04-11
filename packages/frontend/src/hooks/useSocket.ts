@@ -45,6 +45,26 @@ export function useSocket(): void {
             setWeather(data);
         });
 
+        socket.on('satellite-risk-alerts', (alerts: Array<{
+            noradId: number;
+            name: string;
+            riskLevel: string;
+            prevLevel: string;
+            riskScore: number;
+            threats: string[];
+            timestamp: string;
+        }>) => {
+            for (const alert of alerts) {
+                addAlert({
+                    id: `sat-${alert.noradId}-${alert.timestamp}`,
+                    level: alert.riskLevel as AlertRecord['level'],
+                    score: alert.riskScore,
+                    brief: `${alert.name} entered ${alert.riskLevel} (was ${alert.prevLevel}) — ${alert.threats.join(', ')}`,
+                    timestamp: alert.timestamp,
+                });
+            }
+        });
+
         socket.connect();
 
         return () => {
@@ -54,6 +74,7 @@ export function useSocket(): void {
             socket.off('risk-alert');
             socket.off('satellite-positions');
             socket.off('space-weather');
+            socket.off('satellite-risk-alerts');
             disconnectSocket();
         };
     }, []);

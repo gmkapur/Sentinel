@@ -43,3 +43,8 @@ export function getAltitudeBand(altKm: number): string {
     if (altKm < 36786) return 'GEO';
     return 'HEO';
 }
+
+export function getRiskLevelColor(level?: RiskLevel): string {
+    if (!level) return RISK_COLORS.LOW;
+    return RISK_COLORS[level] ?? RISK_COLORS.LOW;
+}

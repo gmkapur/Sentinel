@@ -13,14 +13,33 @@ import {
     getSatelliteById,
     getSatelliteCount,
 } from './satellites';
-import type { AgentPushPayload } from '@sentinel/shared';
+import { computeDetailedBreakdown } from './satRisk';
+import type { AgentPushPayload, SatPosition, SatRiskSummary } from '@sentinel/shared';
 
 const AGENT_URL = process.env.AGENT_URL || 'http://localhost:3002';
-const INTERNAL_SECRET = process.env.INTERNAL_SECRET || '';
+// Read lazily inside handlers — module-level read races with dotenv.config()
+function getInternalSecret(): string {
+    return process.env.INTERNAL_SECRET || '';
+}
+
+export interface RouterDeps {
+    broadcast: (event: string, data: unknown) => void;
+    getEnrichedPositions: () => SatPosition[];
+    getTopRisk: () => SatRiskSummary[];
+}
 
 export function createRouter(
-    broadcast: (event: string, data: unknown) => void
+    broadcastOrDeps: ((event: string, data: unknown) => void) | RouterDeps,
 ): Router {
+    const deps: RouterDeps =
+        typeof broadcastOrDeps === 'function'
+            ? {
+                broadcast: broadcastOrDeps,
+                getEnrichedPositions: () => propagateAll(),
+                getTopRisk: () => [],
+            }
+            : broadcastOrDeps;
+    const { broadcast, getEnrichedPositions, getTopRisk } = deps;
     const router = Router();
 
     // -----------------------------------------------------------------------
@@ -41,8 +60,42 @@ export function createRouter(
     // GET /api/satellites
     // -----------------------------------------------------------------------
     router.get('/api/satellites', (_req: Request, res: Response) => {
-        const positions = propagateAll();
-        res.json({ count: positions.length, satellites: positions });
+        const enriched = getEnrichedPositions();
+        res.json({ count: enriched.length, satellites: enriched });
+    });
+
+    // -----------------------------------------------------------------------
+    // GET /api/satellites/top-risk
+    // -----------------------------------------------------------------------
+    router.get('/api/satellites/top-risk', (req: Request, res: Response) => {
+        const count = Math.min(parseInt(req.query.count as string) || 20, 100);
+        const topRisk = getTopRisk().slice(0, count);
+        res.json({ count: topRisk.length, satellites: topRisk });
+    });
+
+    // -----------------------------------------------------------------------
+    // GET /api/satellites/risk-stats
+    // -----------------------------------------------------------------------
+    router.get('/api/satellites/risk-stats', (_req: Request, res: Response) => {
+        const enriched = getEnrichedPositions();
+        const stats = {
+            total: enriched.length,
+            byLevel: {
+                CRITICAL: enriched.filter((s) => s.riskLevel === 'CRITICAL').length,
+                HIGH: enriched.filter((s) => s.riskLevel === 'HIGH').length,
+                MODERATE: enriched.filter((s) => s.riskLevel === 'MODERATE').length,
+                LOW: enriched.filter((s) => s.riskLevel === 'LOW').length,
+            },
+            byRegime: {
+                LEO: enriched.filter((s) => s.orbitRegime === 'LEO').length,
+                MEO: enriched.filter((s) => s.orbitRegime === 'MEO').length,
+                GEO: enriched.filter((s) => s.orbitRegime === 'GEO').length,
+                HEO: enriched.filter((s) => s.orbitRegime === 'HEO').length,
+            },
+            topRisk: getTopRisk().slice(0, 5),
+            timestamp: new Date().toISOString(),
+        };
+        res.json(stats);
     });
 
     // -----------------------------------------------------------------------
@@ -62,6 +115,31 @@ export function createRouter(
         }
 
         res.json(sat);
+    });
+
+    // -----------------------------------------------------------------------
+    // GET /api/satellites/:noradId/risk
+    // -----------------------------------------------------------------------
+    router.get('/api/satellites/:noradId/risk', (req: Request, res: Response) => {
+        const noradId = parseInt(req.params.noradId, 10);
+        if (isNaN(noradId)) {
+            res.status(400).json({ error: 'Invalid NORAD ID' });
+            return;
+        }
+
+        const sat = getSatelliteById(noradId);
+        if (!sat) {
+            res.status(404).json({ error: `Satellite ${noradId} not found` });
+            return;
+        }
+
+        const state = getLatestState();
+        const breakdown = computeDetailedBreakdown(
+            sat,
+            state.spaceWeather,
+            state.neos,
+        );
+        res.json(breakdown);
     });
 
     // -----------------------------------------------------------------------
@@ -177,13 +255,27 @@ export function createRouter(
     });
 
     // -----------------------------------------------------------------------
+    // GET /internal/top-risk-satellites — used by agent for LLM briefs
+    // -----------------------------------------------------------------------
+    router.get('/internal/top-risk-satellites', (req: Request, res: Response) => {
+        const secret = req.headers['x-internal-secret'];
+        const expected = getInternalSecret();
+        if (!expected || secret !== expected) {
+            res.status(403).json({ error: 'Forbidden' });
+            return;
+        }
+        res.json({ satellites: getTopRisk() });
+    });
+
+    // -----------------------------------------------------------------------
     // POST /internal/agent-push
     // -----------------------------------------------------------------------
     router.post(
         '/internal/agent-push',
         async (req: Request, res: Response) => {
             const secret = req.headers['x-internal-secret'];
-            if (!INTERNAL_SECRET || secret !== INTERNAL_SECRET) {
+            const expected = getInternalSecret();
+            if (!expected || secret !== expected) {
                 res.status(403).json({ error: 'Forbidden' });
                 return;
             }

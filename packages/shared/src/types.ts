@@ -1,4 +1,5 @@
 export type RiskLevel = 'LOW' | 'MODERATE' | 'HIGH' | 'CRITICAL';
+export type OrbitRegime = 'LEO' | 'MEO' | 'GEO' | 'HEO';
 
 export interface RiskBreakdown {
     flare: number;
@@ -42,6 +43,14 @@ export interface SatPosition {
     lat: number;
     lng: number;
     alt: number;
+
+    // Per-satellite risk (populated by gateway satRisk module)
+    orbitRegime?: OrbitRegime;
+    riskScore?: number;
+    riskLevel?: RiskLevel;
+    isSunlit?: boolean;
+    isInSAA?: boolean;
+    threats?: string[];
 }
 
 export interface DONKIFlare {
@@ -86,4 +95,41 @@ export interface AgentPushPayload {
     cmes: DONKICME[];
     neos: NEOObject[];
     timestamp: string;
+}
+
+export interface SatRiskBreakdown {
+    satellite: {
+        noradId: number;
+        name: string;
+        orbitRegime: OrbitRegime;
+        altitude: number;
+        lat: number;
+        lng: number;
+        isSunlit: boolean;
+        isInSAA: boolean;
+        solarZenithAngle: number;
+    };
+    scoring: {
+        flareExposure: number;
+        geomagnetic: number;
+        radiation: number;
+        solarWind: number;
+        neo: number;
+        compound: number;
+        bzMultiplier: number;
+        rawTotal: number;
+        finalScore: number;
+    };
+    level: RiskLevel;
+    threats: string[];
+    timestamp: string;
+}
+
+export interface SatRiskSummary {
+    noradId: number;
+    name: string;
+    orbitRegime: OrbitRegime;
+    riskScore: number;
+    riskLevel: RiskLevel;
+    threats: string[];
 }

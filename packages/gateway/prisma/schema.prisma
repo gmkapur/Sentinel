@@ -49,3 +49,19 @@ model SpaceWeatherReading {
     @@index([timestamp(sort: Desc)])
     @@map("space_weather_readings")
 }
+
+model SatelliteRiskAlert {
+    id        String   @id @default(uuid())
+    noradId   Int
+    name      String
+    regime    String
+    riskScore Int
+    riskLevel String
+    prevLevel String
+    threats   String[]
+    timestamp DateTime @default(now())
+
+    @@index([noradId, timestamp(sort: Desc)])
+    @@index([riskLevel, timestamp(sort: Desc)])
+    @@map("satellite_risk_alerts")
+}

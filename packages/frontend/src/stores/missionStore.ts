@@ -1,6 +1,8 @@
 import { create } from 'zustand';
+import { useMemo } from 'react';
 import type {
     RiskState,
+    RiskLevel,
     SpaceWeatherState,
     MissionBrief,
     SatPosition,
@@ -78,3 +80,33 @@ export const useMissionStore = create<MissionStore>((set) => ({
             },
         }),
 }));
+
+// ---------------------------------------------------------------------------
+// Derived selectors
+// ---------------------------------------------------------------------------
+
+export function useTopRiskSatellites(count = 10): SatPosition[] {
+    const satellites = useMissionStore((s) => s.satellites);
+    return useMemo(
+        () =>
+            [...satellites]
+                .filter((s) => (s.riskScore ?? 0) > 0)
+                .sort((a, b) => (b.riskScore ?? 0) - (a.riskScore ?? 0))
+                .slice(0, count),
+        [satellites, count],
+    );
+}
+
+export function useRiskDistribution(): Record<RiskLevel, number> {
+    const satellites = useMissionStore((s) => s.satellites);
+    return useMemo(() => {
+        const dist: Record<RiskLevel, number> = {
+            CRITICAL: 0, HIGH: 0, MODERATE: 0, LOW: 0,
+        };
+        for (const s of satellites) {
+            const lvl = s.riskLevel ?? 'LOW';
+            dist[lvl]++;
+        }
+        return dist;
+    }, [satellites]);
+}

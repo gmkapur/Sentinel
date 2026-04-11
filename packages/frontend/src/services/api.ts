@@ -3,6 +3,8 @@ import type {
     SpaceWeatherState,
     MissionBrief,
     SatPosition,
+    SatRiskBreakdown,
+    SatRiskSummary,
     AlertRecord,
 } from '@sentinel/shared/src/types';
 
@@ -36,4 +38,18 @@ export const api = {
     regenerateBrief: () =>
         fetchJson<MissionBrief>('/api/agent/brief', { method: 'POST' }),
     getAgentHealth: () => fetchJson<any>('/api/agent/health'),
+    getSatelliteRisk: (noradId: number) =>
+        fetchJson<SatRiskBreakdown>(`/api/satellites/${noradId}/risk`),
+    getTopRiskSatellites: (count = 20) =>
+        fetchJson<{ count: number; satellites: SatRiskSummary[] }>(
+            `/api/satellites/top-risk?count=${count}`,
+        ),
+    getRiskStats: () =>
+        fetchJson<{
+            total: number;
+            byLevel: Record<string, number>;
+            byRegime: Record<string, number>;
+            topRisk: SatRiskSummary[];
+            timestamp: string;
+        }>('/api/satellites/risk-stats'),
 };

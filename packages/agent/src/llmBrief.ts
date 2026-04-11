@@ -1,5 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk';
 
+import axios from 'axios';
+
 import type {
     RiskState,
     SpaceWeatherState,
@@ -7,6 +9,7 @@ import type {
     DONKIFlare,
     DONKICME,
     NEOObject,
+    SatRiskSummary,
 } from '@sentinel/shared';
 
 import { saveMissionBrief } from './dataCache';
@@ -67,6 +70,7 @@ Your analysis should consider:
 - Kp ≥ 7 with high proton flux means severe radiation plus atmospheric drag risk for LEO assets
 - Solar wind speed > 700 km/s combined with southward Bz (< -10 nT) amplifies geomagnetic disturbance
 - Potentially hazardous asteroids within 7 days warrant monitoring advisories
+- When per-satellite risk data is provided, include actionable guidance for the most at-risk assets (e.g., "ISS should delay EVA operations", "LEO CubeSats on sunlit side should enter safe mode during this flare window")
 
 Respond ONLY with valid JSON matching this exact schema (no markdown, no code fences):
 {
@@ -92,7 +96,7 @@ export async function generateBrief(
     }
 
     try {
-        const userPrompt = buildUserPrompt(risk, weather, flares, cmes, neos);
+        const userPrompt = await buildUserPrompt(risk, weather, flares, cmes, neos);
 
         const response = await anthropic.messages.create({
             model: MODEL,
@@ -235,13 +239,38 @@ function validateRecommendation(rec: string): MissionBrief['recommendation'] {
     return 'CAUTION';
 }
 
-function buildUserPrompt(
+async function fetchTopRiskSatellites(): Promise<SatRiskSummary[]> {
+    try {
+        const gatewayUrl = process.env.GATEWAY_URL || 'http://localhost:3001';
+        const secret = process.env.INTERNAL_SECRET || '';
+        const res = await axios.get(`${gatewayUrl}/internal/top-risk-satellites`, {
+            headers: { 'x-internal-secret': secret },
+            timeout: 5_000,
+        });
+        return res.data?.satellites ?? [];
+    } catch {
+        return [];
+    }
+}
+
+async function buildUserPrompt(
     risk: RiskState,
     weather: SpaceWeatherState,
     flares: DONKIFlare[],
     cmes: DONKICME[],
     neos: NEOObject[],
-): string {
+): Promise<string> {
+    const topSats = await fetchTopRiskSatellites();
+
+    let satSection = '';
+    if (topSats.length > 0) {
+        satSection = '\n\nMOST AT-RISK SATELLITES:\n';
+        for (const sat of topSats.slice(0, 10)) {
+            satSection += `  ${sat.name} (NORAD ${sat.noradId}, ${sat.orbitRegime}) — ${sat.riskLevel} (score ${sat.riskScore}): ${sat.threats.join(', ')}\n`;
+        }
+        satSection += '\nInclude satellite-specific guidance in your assessment where relevant.';
+    }
+
     return `Current Space Weather Assessment — ${new Date().toISOString()}
 
 RISK SCORE: ${risk.score}/100 (${risk.level})
@@ -292,7 +321,7 @@ NEAR-EARTH OBJECTS (next 7 days): ${
             )
             .join('; ')
         : 'None tracked'
-}
+}${satSection}
 
 Generate your mission brief.`;
 }

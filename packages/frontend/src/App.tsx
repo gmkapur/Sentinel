@@ -2,11 +2,13 @@ import { Shield } from 'lucide-react';
 import { useSocket } from './hooks/useSocket';
 import { useStatus } from './hooks/useStatus';
 import { useAlerts } from './hooks/useAlerts';
+import { useWatchlistAlerts } from './hooks/useWatchlistAlerts';
 import { AppShell } from './components/layout/AppShell';
 
 function App() {
     useSocket();
     useAlerts();
+    useWatchlistAlerts();
     const { loading, error } = useStatus();
 
     if (loading) {
