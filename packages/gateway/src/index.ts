@@ -48,6 +48,11 @@ const PORT = env.GATEWAY_PORT;
 const socketLog = logger.child({ component: 'Socket' });
 const satRiskLog = logger.child({ component: 'SatRisk' });
 
+// Dedup map for conjunction DB writes — key: "minId:maxId", value: last persisted ms
+// Prevents flooding the DB with the same pair every 10s
+const conjDbDedup = new Map<string, number>();
+const CONJ_DB_DEDUP_MS = 60 * 60 * 1000; // 1 hour
+
 app.use(securityHeaders);
 app.use(createRequestLogger(logger));
 app.use(cors());
@@ -180,30 +185,45 @@ function enrichAndBroadcast(): SatPosition[] {
     }
     if (conjResult.newAlerts.length > 0) {
         io.emit('conjunction-alerts', conjResult.newAlerts);
+    }
 
-        // Persist new alert-worthy conjunctions to DB (fire-and-forget, capped)
-        for (const conj of conjResult.newAlerts.slice(0, 10)) {
-            prisma.conjunctionEvent
-                .create({
-                    data: {
-                        sat1NoradId: conj.sat1Id,
-                        sat1Name: conj.sat1Name,
-                        sat2NoradId: conj.sat2Id,
-                        sat2Name: conj.sat2Name,
-                        distanceKm: conj.distanceKm,
-                        severity: conj.severity,
-                        isIntraConstellation: conj.isIntraConstellation,
-                        sat1Regime: conj.sat1Regime,
-                        sat2Regime: conj.sat2Regime,
-                        sat1Position: conj.sat1Position,
-                        sat2Position: conj.sat2Position,
-                    },
-                })
+    // Persist all WARNING/CRITICAL conjunctions to DB — deduped per pair per hour
+    // so intra-constellation GEO/LEO events are also recorded (not just inter-constellation)
+    const now = Date.now();
+    const notable = conjResult.all.filter(
+        (c) => c.severity === 'WARNING' || c.severity === 'CRITICAL',
+    );
+    let dbWriteCount = 0;
+    for (const conj of notable) {
+        if (dbWriteCount >= 10) break; // cap per cycle
+        const key =
+            conj.sat1Id < conj.sat2Id
+                ? `${conj.sat1Id}:${conj.sat2Id}`
+                : `${conj.sat2Id}:${conj.sat1Id}`;
+        const last = conjDbDedup.get(key);
+        if (last && now - last < CONJ_DB_DEDUP_MS) continue;
+        conjDbDedup.set(key, now);
+        dbWriteCount++;
+        prisma.conjunctionEvent
+            .create({
+                data: {
+                    sat1NoradId: conj.sat1Id,
+                    sat1Name: conj.sat1Name,
+                    sat2NoradId: conj.sat2Id,
+                    sat2Name: conj.sat2Name,
+                    distanceKm: conj.distanceKm,
+                    severity: conj.severity,
+                    isIntraConstellation: conj.isIntraConstellation,
+                    sat1Regime: conj.sat1Regime,
+                    sat2Regime: conj.sat2Regime,
+                    sat1Position: conj.sat1Position,
+                    sat2Position: conj.sat2Position,
+                },
+            })
                 .catch((err: unknown) => {
                     const msg = err instanceof Error ? err.message : String(err);
                     satRiskLog.error({ err: msg }, 'Failed to persist conjunction event');
                 });
-        }
     }
 
     return enriched;

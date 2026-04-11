@@ -126,6 +126,7 @@ export async function processAgentPush(
             cmes: payload.cmes as object[],
             neos: payload.neos as object[],
             eonetEvents: payload.eonetEvents as object[],
+            flarePathPredictions: (payload.flarePathPredictions ?? []) as object[],
             timestamp: new Date(payload.timestamp),
         },
     });

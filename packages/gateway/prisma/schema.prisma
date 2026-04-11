@@ -17,8 +17,9 @@ model AgentSnapshot {
     flares       Json
     cmes         Json
     neos         Json
-    eonetEvents  Json     @default("[]")
-    timestamp    DateTime @default(now())
+    eonetEvents          Json     @default("[]")
+    flarePathPredictions Json     @default("[]")
+    timestamp            DateTime @default(now())
 
     @@index([timestamp(sort: Desc)])
     @@index([level])

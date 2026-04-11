@@ -24,9 +24,14 @@ const log = logger.child({ component: 'FlarePathPredictor' });
 async function fetchSatellitePositions(): Promise<SatPosition[]> {
     try {
         const gatewayUrl = process.env.GATEWAY_URL || 'http://localhost:3001';
+        const headers: Record<string, string> = {};
+        const secret = process.env.INTERNAL_SECRET;
+        if (secret) {
+            headers['x-internal-secret'] = secret;
+        }
         const res = await axios.get(
             `${gatewayUrl}/internal/satellite-positions`,
-            { timeout: 5_000 },
+            { headers, timeout: 5_000 },
         );
         return res.data?.satellites ?? [];
     } catch {
