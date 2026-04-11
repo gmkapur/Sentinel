@@ -1,0 +1,175 @@
+import { v4 as uuid } from 'uuid';
+
+import prisma from './db';
+import type {
+    AgentPushPayload,
+    AlertRecord,
+    RiskState,
+    RiskLevel,
+    RiskBreakdown,
+    MissionBrief,
+    SpaceWeatherState,
+    DONKIFlare,
+    DONKICME,
+    NEOObject,
+} from '@sentinel/shared';
+
+// ---------------------------------------------------------------------------
+// In-memory hot cache (latest state only)
+// ---------------------------------------------------------------------------
+
+interface LatestState {
+    risk: RiskState | null;
+    brief: MissionBrief | null;
+    spaceWeather: SpaceWeatherState | null;
+    flares: DONKIFlare[];
+    cmes: DONKICME[];
+    neos: NEOObject[];
+    lastUpdate: string | null;
+}
+
+const latest: LatestState = {
+    risk: null,
+    brief: null,
+    spaceWeather: null,
+    flares: [],
+    cmes: [],
+    neos: [],
+    lastUpdate: null,
+};
+
+// ---------------------------------------------------------------------------
+// Public read accessors (hot path — no DB round-trip)
+// ---------------------------------------------------------------------------
+
+export function getLatestRisk(): RiskState | null {
+    return latest.risk;
+}
+
+export function getLatestBrief(): MissionBrief | null {
+    return latest.brief;
+}
+
+export function getLatestSpaceWeather(): SpaceWeatherState | null {
+    return latest.spaceWeather;
+}
+
+export function getLatestState(): LatestState {
+    return { ...latest };
+}
+
+// ---------------------------------------------------------------------------
+// Alert history (cold path — Prisma query)
+// ---------------------------------------------------------------------------
+
+export async function getAlertHistory(limit: number = 100): Promise<AlertRecord[]> {
+    const rows = await prisma.alertRecord.findMany({
+        orderBy: { timestamp: 'desc' },
+        take: limit,
+    });
+
+    return rows.map((row) => ({
+        id: row.id,
+        level: row.level as RiskLevel,
+        score: row.score,
+        brief: row.brief,
+        timestamp: row.timestamp.toISOString(),
+    }));
+}
+
+// ---------------------------------------------------------------------------
+// Agent push handler (write-through)
+// ---------------------------------------------------------------------------
+
+export interface AgentPushResult {
+    received: true;
+    isAlert: boolean;
+}
+
+export async function processAgentPush(
+    payload: AgentPushPayload
+): Promise<AgentPushResult> {
+    const previousLevel = latest.risk?.level ?? null;
+    const isAlert = previousLevel !== null && previousLevel !== payload.risk.level;
+
+    // 1. Persist snapshot to Postgres
+    await prisma.agentSnapshot.create({
+        data: {
+            score: payload.risk.score,
+            level: payload.risk.level,
+            breakdown: payload.risk.breakdown as object,
+            brief: payload.brief ? (payload.brief as object) : undefined,
+            spaceWeather: payload.spaceWeather as object,
+            flares: payload.flares as object[],
+            cmes: payload.cmes as object[],
+            neos: payload.neos as object[],
+            timestamp: new Date(payload.timestamp),
+        },
+    });
+
+    // 2. Persist space weather reading
+    await prisma.spaceWeatherReading.create({
+        data: {
+            xrayClass: payload.spaceWeather.xrayClass,
+            kpIndex: payload.spaceWeather.kpIndex,
+            protonFlux: payload.spaceWeather.protonFlux,
+            solarWindSpeed: payload.spaceWeather.solarWindSpeed,
+            bz: payload.spaceWeather.bz,
+            timestamp: new Date(payload.timestamp),
+        },
+    });
+
+    // 3. Create alert record on level transition
+    if (isAlert) {
+        await prisma.alertRecord.create({
+            data: {
+                id: uuid(),
+                level: payload.risk.level,
+                score: payload.risk.score,
+                brief: payload.brief?.summary ?? 'No brief available',
+                riskState: payload.risk as object,
+                timestamp: new Date(payload.timestamp),
+            },
+        });
+    }
+
+    // 4. Update in-memory hot cache
+    latest.risk = payload.risk;
+    latest.brief = payload.brief;
+    latest.spaceWeather = payload.spaceWeather;
+    latest.flares = payload.flares;
+    latest.cmes = payload.cmes;
+    latest.neos = payload.neos;
+    latest.lastUpdate = payload.timestamp;
+
+    return { received: true, isAlert };
+}
+
+// ---------------------------------------------------------------------------
+// Hydrate in-memory cache from DB on startup
+// ---------------------------------------------------------------------------
+
+export async function hydrateFromDb(): Promise<void> {
+    const snapshot = await prisma.agentSnapshot.findFirst({
+        orderBy: { timestamp: 'desc' },
+    });
+
+    if (snapshot) {
+        latest.risk = {
+            score: snapshot.score,
+            level: snapshot.level as RiskLevel,
+            breakdown: snapshot.breakdown as unknown as RiskBreakdown,
+            timestamp: snapshot.timestamp.toISOString(),
+        };
+        latest.brief = snapshot.brief as unknown as MissionBrief | null;
+        latest.spaceWeather = snapshot.spaceWeather as unknown as SpaceWeatherState;
+        latest.flares = snapshot.flares as unknown as DONKIFlare[];
+        latest.cmes = snapshot.cmes as unknown as DONKICME[];
+        latest.neos = snapshot.neos as unknown as NEOObject[];
+        latest.lastUpdate = snapshot.timestamp.toISOString();
+        console.log(`[AgentState] Hydrated from DB — last snapshot: ${snapshot.timestamp.toISOString()}`);
+    }
+    else {
+        console.log('[AgentState] No prior snapshots found — starting fresh');
+    }
+}

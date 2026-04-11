@@ -319,7 +319,98 @@ INTERNAL_SECRET=shared_secret_here # Inter-service auth header
 - **Trade-offs**: Less capable than CesiumJS for professional SSA (no CZML, no terrain, no time-dynamic trajectories)
 
 ## Scaling Considerations
-- **Current capacity**: Two single-process Node.js services suitable for development and demos
-- **Bottlenecks**: In-memory cache limits to single instance per service; satellite.js propagation is CPU-bound for large satellite counts
-- **Horizontal scaling**: Would require shared cache (Redis), external session store, load balancer, and service discovery — out of scope for MVP
-- **Agent scaling**: LLM calls are the primary latency bottleneck; could add request queuing or parallel brief generation for multiple satellite groups
+
+### Current Capacity Estimates
+
+| Resource | Limit | Bottleneck Trigger |
+|----------|-------|-------------------|
+| WebSocket clients | ~500 concurrent | SGP4 propagation loop (10s interval × 500+ satellites) saturates single Node.js event loop |
+| Satellite count | ~2,000 TLEs | SGP4 propagation at 10s interval takes >8s on single core beyond this count |
+| Agent evaluation cycle | ~5s per cycle | Acceptable for 5-min intervals; LLM call adds 2–10s latency |
+| Memory (agent) | ~200 MB | node-cache with all sources cached; grows linearly with DONKI history window |
+| Memory (gateway) | ~150 MB | TLE cache + 100 alert records + Socket.io connection state |
+| Alert history | 100 records | Hard-coded cap; oldest dropped on overflow |
+
+### Prioritized Scaling Roadmap
+
+1. **Redis shared cache** (first bottleneck: horizontal gateway scaling)
+   - Enables multiple gateway instances behind a load balancer
+   - Socket.io adapter for Redis pub/sub broadcasts
+   - Estimated effort: 4–8 hours
+
+2. **Worker thread pool for SGP4** (second bottleneck: satellite count > 2,000)
+   - Move satellite.js propagation to worker threads
+   - Partition satellite list across workers
+   - Estimated effort: 2–4 hours
+
+3. **LLM request queue** (third bottleneck: concurrent brief requests)
+   - BullMQ queue for Claude API calls with rate limiting
+   - Prevents concurrent LLM calls from exceeding API rate limits
+   - Estimated effort: 2–3 hours
+
+4. **Database persistence** (fourth: alert history and audit trail)
+   - PostgreSQL for alert history, risk score time series
+   - Enables historical analysis and replay
+   - Estimated effort: 8–12 hours
+
+5. **Service discovery + load balancer** (fifth: multi-instance deployment)
+   - Kubernetes or Docker Compose with Traefik/nginx
+   - Health check-based routing
+   - Estimated effort: 1–2 days
+
+## Data Source Extensibility
+
+### Plugin Interface (Post-MVP Design)
+
+The agent's poller architecture is designed to be extended with new data sources without modifying the risk engine core. Each poller follows a consistent pattern:
+
+```typescript
+// Conceptual interface for new data source pollers
+interface DataSourcePoller {
+  /** Unique identifier for cache keys (e.g., "swpc-xray", "amateur-kp") */
+  sourceId: string;
+
+  /** Cron expression for polling schedule */
+  schedule: string;
+
+  /** Cache TTL in seconds */
+  ttl: number;
+
+  /** Fetch data from external source */
+  poll(): Promise<unknown>;
+
+  /** Extract risk-relevant signals from cached data */
+  extractSignals(data: unknown): RiskSignal[];
+}
+
+interface RiskSignal {
+  /** Which base score category this contributes to */
+  category: 'solarFlare' | 'geomagneticStorm' | 'radiationStorm' | 'solarWind' | 'imfBz' | 'neo' | 'custom';
+
+  /** Points to add (0–40 range per signal) */
+  points: number;
+
+  /** Human-readable reason */
+  reason: string;
+}
+```
+
+### Adding a New Data Source
+
+To add a new poller without modifying `riskEngine.ts`:
+
+1. Create `packages/agent/src/pollers/<source>.ts` implementing the fetch + cache pattern
+2. Register the cron job in `packages/agent/src/index.ts`
+3. Add the source to the `dataCache.ts` key whitelist
+4. Emit signals via the `RiskSignal` interface that map to existing score categories
+5. For new score categories, extend `RiskBreakdown` in `packages/shared/types.ts`
+
+### Candidate Future Data Sources
+
+| Source | Data | Value Add |
+|--------|------|-----------|
+| Space-Track (full catalog) | Conjunction data messages (CDMs) | Real collision risk, not just SOCRATES |
+| Amateur radio Kp network | Community magnetometer readings | Denser Kp coverage, faster detection |
+| ESA SSA | European space weather bulletins | Independent confirmation of NOAA data |
+| GOES magnetometer (real-time) | Real-time geomagnetic field | Sub-minute storm onset detection |
+| Satellite operator feeds | Anomaly reports, telemetry | Ground-truth validation of risk model |

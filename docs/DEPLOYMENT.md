@@ -133,6 +133,57 @@ Not applicable for MVP (local development only). Post-MVP: redeploy previous git
 - **What to log**: Poller successes/failures with data counts, risk engine evaluations with scores, LLM brief generation, gateway push results, Socket.io connection counts
 - **Log prefixes**: `[SWPC]`, `[DONKI]`, `[NeoWs]`, `[EONET]`, `[RiskEngine]`, `[LLM]`, `[Push]`, `[Gateway]`, `[Socket]`, `[Satellites]`
 
+## Demo-Day Risk Checklist
+
+Mitigations for common demo failures. Each risk has a concrete fallback.
+
+| # | Risk | Likelihood | Impact | Mitigation |
+|---|------|-----------|--------|------------|
+| 1 | **CelesTrak down** — no satellite positions on globe | Low | High | Pre-cache TLE snapshot as `fixtures/tle-cache.json`; load from file if CelesTrak fetch fails |
+| 2 | **NOAA SWPC down** — no X-ray/Kp/proton data | Low | High | Pre-cache last-known SWPC responses as fixtures; risk engine scores from stale cache |
+| 3 | **NASA DONKI down** — no flare/CME events | Low | Medium | Core scoring still works via SWPC real-time data; DONKI adds event history |
+| 4 | **Claude API key expired / no credits** | Medium | Medium | Deterministic fallback briefs activate automatically; demo the fallback as a feature |
+| 5 | **NASA API rate limit hit** (DEMO_KEY: 30/hr) | Medium | Medium | Register a free key (1,000/hr) before demo; pre-cache NeoWs data as fixture |
+| 6 | **WebGL fails in demo browser** (react-globe.gl) | Low | Critical | Test on demo machine beforehand; have a screen recording of the globe as backup |
+| 7 | **Network/WiFi down** at demo venue | Medium | Critical | Run all services locally; pre-cache all API responses; demo works fully offline from cache |
+| 8 | **Port conflicts** on demo machine | Low | Low | Configure alternate ports via `.env`; test startup on demo machine 30 min before |
+| 9 | **Socket.io connection fails** | Low | Medium | Frontend falls back to REST polling via `/api/status` on 10s interval |
+| 10 | **No interesting space weather** during demo | High | Medium | Prepare a fixture dataset from the **May 2024 G5 geomagnetic storm** showing what scores and NO-GO brief the system would have generated |
+
+### Pre-Demo Checklist
+
+```bash
+# 1. Verify all services start cleanly
+cd packages/agent && npm run dev     # Watch for poller success logs
+cd packages/gateway && npm run dev   # Watch for TLE fetch + satellite count
+cd packages/frontend && npm run dev  # Verify globe renders in target browser
+
+# 2. Verify data flow
+curl http://localhost:3002/health              # Agent pollers running
+curl http://localhost:3001/api/status           # Risk state populated
+curl http://localhost:3001/api/satellites       # Satellite positions available
+
+# 3. Verify LLM briefs (if using Claude)
+curl http://localhost:3001/api/agent/brief      # Brief available (or fallback)
+
+# 4. Cache snapshot for offline fallback
+curl http://localhost:3002/data/swpc-xray > fixtures/swpc-xray.json
+curl http://localhost:3002/data/donki-flares > fixtures/donki-flares.json
+curl http://localhost:3001/api/satellites > fixtures/satellites.json
+```
+
+### Historical Storm Scenario
+
+For the most compelling demo, prepare a fixture dataset from the **May 10–12, 2024 G5 geomagnetic storm** — the strongest storm in 21 years:
+- X-ray flux: X5.8 flare (May 11) → `solarFlare: +40`
+- Kp index: 9 (G5 extreme) → `geomagneticStorm: +30`
+- Proton flux: >1000 pfu → `radiationStorm: +25`
+- Compound bonuses: M5+ AND Kp≥5 (+15) + Kp≥7 AND protons≥100 (+20) + M5+ sunlit (+10)
+- **Expected score: 100+ (capped at 100) = CRITICAL**
+- **Expected brief: NO-GO** with detailed threat analysis
+
+This demonstrates exactly the kind of compound event where Orbit Sentinel provides value that raw NOAA dashboards do not.
+
 ## Secrets Management
 - **Tool**: `.env` file (local development), platform env vars (production)
 - **Never committed**: `.env` files, API keys

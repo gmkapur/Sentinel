@@ -1,0 +1,51 @@
+generator client {
+    provider = "prisma-client-js"
+}
+
+datasource db {
+    provider = "postgresql"
+    url      = env("DATABASE_URL")
+}
+
+model AgentSnapshot {
+    id           String   @id @default(uuid())
+    score        Int
+    level        String
+    breakdown    Json
+    brief        Json?
+    spaceWeather Json
+    flares       Json
+    cmes         Json
+    neos         Json
+    timestamp    DateTime @default(now())
+
+    @@index([timestamp(sort: Desc)])
+    @@index([level])
+    @@map("agent_snapshots")
+}
+
+model AlertRecord {
+    id        String   @id @default(uuid())
+    level     String
+    score     Int
+    brief     String
+    riskState Json
+    timestamp DateTime @default(now())
+
+    @@index([timestamp(sort: Desc)])
+    @@index([level])
+    @@map("alert_records")
+}
+
+model SpaceWeatherReading {
+    id             String   @id @default(uuid())
+    xrayClass      String?
+    kpIndex        Float?
+    protonFlux     Float?
+    solarWindSpeed Float?
+    bz             Float?
+    timestamp      DateTime @default(now())
+
+    @@index([timestamp(sort: Desc)])
+    @@map("space_weather_readings")
+}
