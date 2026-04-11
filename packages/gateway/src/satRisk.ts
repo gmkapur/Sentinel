@@ -575,6 +575,12 @@ export function getTopRiskSatellites(
             riskScore: s.riskScore!,
             riskLevel: s.riskLevel!,
             threats: s.threats ?? [],
+            altitude: s.alt,
+            lat: s.lat,
+            lng: s.lng,
+            isSunlit: s.isSunlit ?? false,
+            isInSAA: s.isInSAA ?? false,
+            cmeImpactProbability: s.cmeImpactProbability,
         }));
 }
 

@@ -144,6 +144,7 @@ export async function initiateOutboundCall(
                     conversation_config_override: {
                         agent: {
                             first_message: firstMessage,
+                            disable_first_message_interruptions: true,
                             prompt: {
                                 prompt: SYSTEM_PROMPT,
                             },

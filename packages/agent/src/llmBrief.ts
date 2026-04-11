@@ -300,7 +300,15 @@ async function buildUserPrompt(
     if (topSats.length > 0) {
         satSection = '\n\nMOST AT-RISK SATELLITES:\n';
         for (const sat of topSats.slice(0, 10)) {
-            satSection += `  ${sat.name} (NORAD ${sat.noradId}, ${sat.orbitRegime}) — ${sat.riskLevel} (score ${sat.riskScore}): ${sat.threats.join(', ')}\n`;
+            const pos = `${Math.abs(sat.lat).toFixed(1)}°${sat.lat >= 0 ? 'N' : 'S'} ${Math.abs(sat.lng).toFixed(1)}°${sat.lng >= 0 ? 'E' : 'W'}`;
+            const sunlit = sat.isSunlit ? 'SUNLIT' : 'SHADOW';
+            const saa = sat.isInSAA ? ', IN SAA' : '';
+            const cme = sat.cmeImpactProbability != null
+                ? `, CME impact ${Math.round(sat.cmeImpactProbability * 100)}%`
+                : '';
+            satSection += `  ${sat.name} (NORAD ${sat.noradId}, ${sat.orbitRegime}, ${Math.round(sat.altitude)} km alt) — ${sat.riskLevel} (score ${sat.riskScore})\n`;
+            satSection += `    Position: ${pos} | ${sunlit}${saa}${cme}\n`;
+            satSection += `    Threats: ${sat.threats.join('; ')}\n`;
         }
         satSection +=
             '\nInclude satellite-specific guidance in your assessment where relevant.';
@@ -329,11 +337,13 @@ async function buildUserPrompt(
                     ? `ETA ${Math.round(hoursUntil)}h`
                     : 'arrival window active';
             cmeSection += `\n  CME ${pred.associatedCMEID} — ${pred.earthDirectedness} (${Math.round(pred.earthImpactProbability * 100)}% impact prob, ${eta}, speed ${pred.coneSpeedKmS} km/s, confidence ${Math.round(pred.confidence * 100)}%)`;
-            const topAffected = (pred.affectedSatellites ?? []).slice(0, 5);
-            if (topAffected.length > 0) {
-                cmeSection += '\n    Most affected satellites:';
-                for (const sat of topAffected) {
-                    cmeSection += `\n      ${sat.name} (${sat.orbitRegime}, ${Math.round(sat.impactProbability * 100)}% impact, risk +${sat.riskContribution}) — ${sat.advisory}`;
+            const affected = (pred.affectedSatellites ?? []).filter(s => s.impactProbability > 0.1);
+            if (affected.length > 0) {
+                cmeSection += `\n    Affected satellites (${affected.length} total):`;
+                for (const sat of affected) {
+                    const sunlit = sat.isSunlit ? 'sunlit' : 'shadow';
+                    const saa = sat.isInSAA ? ', SAA' : '';
+                    cmeSection += `\n      ${sat.name} (${sat.orbitRegime}, ${Math.round(sat.impactProbability * 100)}% impact, risk +${sat.riskContribution}, ${sunlit}${saa}) — ${sat.advisory}`;
                 }
             }
         }
@@ -367,7 +377,7 @@ RECENT FLARES (last 30 days): ${
         flares.length > 0
             ? flares
                   .slice(0, 10)
-                  .map((f) => `${f.classType} at ${f.peakTime}`)
+                  .map((f) => `${f.classType} at ${f.peakTime}${f.sourceLocation ? ` from ${f.sourceLocation}` : ''}`)
                   .join('; ')
             : 'None recorded'
     }

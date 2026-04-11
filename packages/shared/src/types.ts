@@ -227,6 +227,12 @@ export interface SatRiskSummary {
     riskScore: number;
     riskLevel: RiskLevel;
     threats: string[];
+    altitude: number;
+    lat: number;
+    lng: number;
+    isSunlit: boolean;
+    isInSAA: boolean;
+    cmeImpactProbability?: number;
 }
 
 // ---------------------------------------------------------------------------
