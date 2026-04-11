@@ -101,7 +101,10 @@ export function useRiskDistribution(): Record<RiskLevel, number> {
     const satellites = useMissionStore((s) => s.satellites);
     return useMemo(() => {
         const dist: Record<RiskLevel, number> = {
-            CRITICAL: 0, HIGH: 0, MODERATE: 0, LOW: 0,
+            CRITICAL: 0,
+            HIGH: 0,
+            MODERATE: 0,
+            LOW: 0,
         };
         for (const s of satellites) {
             const lvl = s.riskLevel ?? 'LOW';

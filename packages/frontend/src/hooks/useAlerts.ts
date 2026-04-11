@@ -14,8 +14,7 @@ export function useAlerts(): void {
                 if (!cancelled) {
                     setAlerts(alerts);
                 }
-            }
-            catch {
+            } catch {
                 console.warn('Failed to fetch initial alerts');
             }
         }

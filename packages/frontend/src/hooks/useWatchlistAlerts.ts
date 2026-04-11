@@ -4,7 +4,10 @@ import { useWatchlistStore } from '../stores/watchlistStore';
 import type { RiskLevel } from '@sentinel/shared/src/types';
 
 const LEVEL_ORDER: Record<RiskLevel, number> = {
-    LOW: 0, MODERATE: 1, HIGH: 2, CRITICAL: 3,
+    LOW: 0,
+    MODERATE: 1,
+    HIGH: 2,
+    CRITICAL: 3,
 };
 
 export function useWatchlistAlerts(): void {

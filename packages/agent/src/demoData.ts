@@ -155,7 +155,9 @@ function makeFakeNeos(): NEOObject[] {
 
 export async function injectDemoData(): Promise<void> {
     console.log('[DEMO] Injecting fake high-risk space weather data...');
-    console.log('[DEMO] Scenario: X5.3 flare + Kp 8 storm + 150 pfu protons + 780 km/s wind + Bz -14 nT');
+    console.log(
+        '[DEMO] Scenario: X5.3 flare + Kp 8 storm + 150 pfu protons + 780 km/s wind + Bz -14 nT',
+    );
 
     // Overlay fake SWPC readings (overwrites whatever the real pollers fetched)
     await Promise.all([
@@ -173,7 +175,13 @@ export async function injectDemoData(): Promise<void> {
         upsertNeos(makeFakeNeos()),
     ]);
 
-    console.log('[DEMO] Fake data injected — risk engine will compute CRITICAL scores');
-    console.log('[DEMO] Expected: Global score ~100 (CRITICAL), LEO sunlit satellites at HIGH/CRITICAL');
-    console.log('[DEMO] Compound bonuses: M5+/Kp≥5 (+15), Kp≥7/proton≥100 (+20), M5+/sunlit (+10)');
+    console.log(
+        '[DEMO] Fake data injected — risk engine will compute CRITICAL scores',
+    );
+    console.log(
+        '[DEMO] Expected: Global score ~100 (CRITICAL), LEO sunlit satellites at HIGH/CRITICAL',
+    );
+    console.log(
+        '[DEMO] Compound bonuses: M5+/Kp≥5 (+15), Kp≥7/proton≥100 (+20), M5+/sunlit (+10)',
+    );
 }

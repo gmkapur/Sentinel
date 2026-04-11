@@ -4,7 +4,11 @@ import { useMissionStore } from '../../stores/missionStore';
 import { getRiskLevelColor } from '../../utils/colors';
 import { LevelBadge } from '../shared/LevelBadge';
 import { GlassPanel } from '../shared/GlassPanel';
-import type { SatPosition, OrbitRegime, RiskLevel } from '@sentinel/shared/src/types';
+import type {
+    SatPosition,
+    OrbitRegime,
+    RiskLevel,
+} from '@sentinel/shared/src/types';
 
 interface Props {
     onSelectSatellite: (sat: SatPosition) => void;
@@ -64,7 +68,11 @@ export function SatelliteList({ onSelectSatellite }: Props) {
         const q = search.toLowerCase();
         return satellites
             .filter((s) => {
-                if (q && !s.name.toLowerCase().includes(q) && !String(s.id).includes(q)) {
+                if (
+                    q &&
+                    !s.name.toLowerCase().includes(q) &&
+                    !String(s.id).includes(q)
+                ) {
                     return false;
                 }
                 if (!regimeFilter.has(s.orbitRegime ?? 'LEO')) return false;
@@ -92,20 +100,32 @@ export function SatelliteList({ onSelectSatellite }: Props) {
 
     const SortIcon = ({ field }: { field: SortField }) => {
         if (sortField !== field) return null;
-        return sortDir === 'desc'
-            ? <ChevronDown size={ 10 } className="inline" />
-            : <ChevronUp size={ 10 } className="inline" />;
+        return sortDir === 'desc' ? (
+            <ChevronDown size={10} className="inline" />
+        ) : (
+            <ChevronUp size={10} className="inline" />
+        );
     };
 
     return (
-        <GlassPanel title="Satellites" icon={ <Satellite size={ 14 } /> } className="flex flex-col max-h-full">
+        <GlassPanel
+            title="Satellites"
+            icon={<Satellite size={14} />}
+            className="flex flex-col max-h-full"
+        >
             {/* Search */}
             <div className="relative mb-2">
-                <Search size={ 12 } className="absolute left-2 top-1/2 -translate-y-1/2 text-text-muted" />
+                <Search
+                    size={12}
+                    className="absolute left-2 top-1/2 -translate-y-1/2 text-text-muted"
+                />
                 <input
                     type="text"
-                    value={ search }
-                    onChange={ (e) => { setSearch(e.target.value); setPage(0); } }
+                    value={search}
+                    onChange={(e) => {
+                        setSearch(e.target.value);
+                        setPage(0);
+                    }}
                     placeholder="Search name or NORAD ID..."
                     className="w-full bg-surface-raised border border-border-subtle rounded pl-7 pr-2 py-1 font-mono text-[11px] text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent"
                 />
@@ -113,40 +133,45 @@ export function SatelliteList({ onSelectSatellite }: Props) {
 
             {/* Filters */}
             <div className="flex flex-wrap gap-1 mb-2">
-                { REGIME_OPTIONS.map((r) => (
+                {REGIME_OPTIONS.map((r) => (
                     <button
-                        key={ r }
-                        onClick={ () => toggleRegime(r) }
-                        className={ `font-mono text-[9px] px-1.5 py-0.5 rounded border transition-colors ${
+                        key={r}
+                        onClick={() => toggleRegime(r)}
+                        className={`font-mono text-[9px] px-1.5 py-0.5 rounded border transition-colors ${
                             regimeFilter.has(r)
                                 ? 'border-accent text-accent bg-accent/10'
                                 : 'border-border-subtle text-text-muted'
-                        }` }
+                        }`}
                     >
-                        { r }
+                        {r}
                     </button>
-                )) }
+                ))}
                 <span className="w-px h-4 bg-border-subtle self-center mx-0.5" />
-                { LEVEL_OPTIONS.map((l) => (
+                {LEVEL_OPTIONS.map((l) => (
                     <button
-                        key={ l }
-                        onClick={ () => toggleLevel(l) }
-                        className={ `font-mono text-[9px] px-1.5 py-0.5 rounded border transition-colors ${
+                        key={l}
+                        onClick={() => toggleLevel(l)}
+                        className={`font-mono text-[9px] px-1.5 py-0.5 rounded border transition-colors ${
                             levelFilter.has(l)
                                 ? 'border-current bg-current/10'
                                 : 'border-border-subtle text-text-muted'
-                        }` }
-                        style={ levelFilter.has(l) ? { color: getRiskLevelColor(l) } : undefined }
+                        }`}
+                        style={
+                            levelFilter.has(l)
+                                ? { color: getRiskLevelColor(l) }
+                                : undefined
+                        }
                     >
-                        { l === 'MODERATE' ? 'MOD' : l }
+                        {l === 'MODERATE' ? 'MOD' : l}
                     </button>
-                )) }
+                ))}
             </div>
 
             {/* Count */}
             <div className="font-mono text-[10px] text-text-muted mb-1">
-                { filtered.length } satellites
-                { filtered.length !== satellites.length && ` (of ${satellites.length})` }
+                {filtered.length} satellites
+                {filtered.length !== satellites.length &&
+                    ` (of ${satellites.length})`}
             </div>
 
             {/* Table */}
@@ -156,13 +181,13 @@ export function SatelliteList({ onSelectSatellite }: Props) {
                         <tr className="font-mono text-[9px] text-text-muted uppercase">
                             <th
                                 className="text-left py-1 cursor-pointer hover:text-text-secondary"
-                                onClick={ () => handleSort('name') }
+                                onClick={() => handleSort('name')}
                             >
                                 Name <SortIcon field="name" />
                             </th>
                             <th
                                 className="text-right py-1 cursor-pointer hover:text-text-secondary w-12"
-                                onClick={ () => handleSort('riskScore') }
+                                onClick={() => handleSort('riskScore')}
                             >
                                 Risk <SortIcon field="riskScore" />
                             </th>
@@ -170,59 +195,68 @@ export function SatelliteList({ onSelectSatellite }: Props) {
                         </tr>
                     </thead>
                     <tbody>
-                        { pageData.map((sat) => (
+                        {pageData.map((sat) => (
                             <tr
-                                key={ sat.id }
-                                onClick={ () => onSelectSatellite(sat) }
+                                key={sat.id}
+                                onClick={() => onSelectSatellite(sat)}
                                 className="cursor-pointer hover:bg-surface-raised/50 transition-colors"
                             >
                                 <td className="py-0.5">
                                     <div className="font-mono text-[11px] text-text-primary truncate max-w-[160px]">
-                                        { sat.name }
+                                        {sat.name}
                                     </div>
                                     <div className="font-mono text-[9px] text-text-muted">
-                                        { sat.id } &middot; { sat.orbitRegime } &middot; { Math.round(sat.alt) }km
+                                        {sat.id} &middot; {sat.orbitRegime}{' '}
+                                        &middot; {Math.round(sat.alt)}km
                                     </div>
                                 </td>
                                 <td className="text-right">
                                     <span
                                         className="font-mono text-xs font-medium"
-                                        style={ { color: getRiskLevelColor(sat.riskLevel) } }
+                                        style={{
+                                            color: getRiskLevelColor(
+                                                sat.riskLevel,
+                                            ),
+                                        }}
                                     >
-                                        { sat.riskScore ?? 0 }
+                                        {sat.riskScore ?? 0}
                                     </span>
                                 </td>
                                 <td className="text-right">
-                                    { sat.riskLevel && <LevelBadge level={ sat.riskLevel } /> }
+                                    {sat.riskLevel && (
+                                        <LevelBadge level={sat.riskLevel} />
+                                    )}
                                 </td>
                             </tr>
-                        )) }
+                        ))}
                     </tbody>
                 </table>
             </div>
 
             {/* Pagination */}
-            { totalPages > 1 && (
+            {totalPages > 1 && (
                 <div className="flex items-center justify-between pt-1.5 mt-1 border-t border-border-subtle">
                     <button
-                        disabled={ page === 0 }
-                        onClick={ () => setPage((p) => Math.max(0, p - 1)) }
+                        disabled={page === 0}
+                        onClick={() => setPage((p) => Math.max(0, p - 1))}
                         className="font-mono text-[10px] text-text-muted hover:text-accent disabled:opacity-30 disabled:cursor-default"
                     >
                         Prev
                     </button>
                     <span className="font-mono text-[10px] text-text-muted">
-                        { page + 1 } / { totalPages }
+                        {page + 1} / {totalPages}
                     </span>
                     <button
-                        disabled={ page >= totalPages - 1 }
-                        onClick={ () => setPage((p) => Math.min(totalPages - 1, p + 1)) }
+                        disabled={page >= totalPages - 1}
+                        onClick={() =>
+                            setPage((p) => Math.min(totalPages - 1, p + 1))
+                        }
                         className="font-mono text-[10px] text-text-muted hover:text-accent disabled:opacity-30 disabled:cursor-default"
                     >
                         Next
                     </button>
                 </div>
-            ) }
+            )}
         </GlassPanel>
     );
 }

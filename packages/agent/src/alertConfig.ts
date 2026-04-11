@@ -60,7 +60,10 @@ export function loadAlertConfig(): PhoneAlertConfig {
     return {
         enabled: process.env.ALERT_ENABLED === 'true',
         operatorPhones,
-        cooldownMinutes: parseInt(process.env.ALERT_COOLDOWN_MINUTES || '30', 10),
+        cooldownMinutes: parseInt(
+            process.env.ALERT_COOLDOWN_MINUTES || '30',
+            10,
+        ),
         triggerLevels: ['HIGH', 'CRITICAL'],
         escalationEnabled: true,
         maxCallsPerHour: 4,

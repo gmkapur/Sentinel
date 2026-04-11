@@ -66,8 +66,7 @@ export async function pollNeoWs(): Promise<void> {
         await upsertNeos(neos);
         await updatePollStatus('neows', true);
         console.log(`[NeoWs] OK — ${neos.length} objects`);
-    }
-    catch (error) {
+    } catch (error) {
         const msg = error instanceof Error ? error.message : String(error);
         console.error(`[NeoWs] FAILED: ${msg}`);
         await updatePollStatus('neows', false, msg);

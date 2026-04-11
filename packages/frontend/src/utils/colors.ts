@@ -31,10 +31,10 @@ export const STATUS_COLORS: Record<WeatherStatus, string> = {
 };
 
 export function getAltitudeColor(altKm: number): string {
-    if (altKm < 2000) return '#22d3ee';      // LEO - cyan
-    if (altKm < 35786) return '#eab308';      // MEO - yellow
-    if (altKm < 36786) return '#f97316';      // GEO - amber
-    return '#a855f7';                          // HEO - purple
+    if (altKm < 2000) return '#22d3ee'; // LEO - cyan
+    if (altKm < 35786) return '#eab308'; // MEO - yellow
+    if (altKm < 36786) return '#f97316'; // GEO - amber
+    return '#a855f7'; // HEO - purple
 }
 
 export function getAltitudeBand(altKm: number): string {

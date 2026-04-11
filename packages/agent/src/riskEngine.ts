@@ -11,7 +11,7 @@ import {
 // Score → Level mapping
 // ---------------------------------------------------------------------------
 
-function scoreToLevel(score: number): RiskLevel {
+export function scoreToLevel(score: number): RiskLevel {
     if (score >= 70) return 'CRITICAL';
     if (score >= 40) return 'HIGH';
     if (score >= 20) return 'MODERATE';
@@ -22,7 +22,7 @@ function scoreToLevel(score: number): RiskLevel {
 // Flare classification helpers
 // ---------------------------------------------------------------------------
 
-function getFlareClass(
+export function getFlareClass(
     classType: string | null,
 ): { letter: string; number: number } | null {
     if (!classType) return null;
@@ -31,23 +31,23 @@ function getFlareClass(
     return { letter: match[1].toUpperCase(), number: parseFloat(match[2]) };
 }
 
-function scoreFlare(xrayClass: string | null): number {
+export function scoreFlare(xrayClass: string | null): number {
     const parsed = getFlareClass(xrayClass);
     if (!parsed) return 0;
 
     switch (parsed.letter) {
-    case 'X':
-        return 40;
-    case 'M':
-        return parsed.number >= 5 ? 25 : 15;
-    case 'C':
-        return 5;
-    default:
-        return 0;
+        case 'X':
+            return 40;
+        case 'M':
+            return parsed.number >= 5 ? 25 : 15;
+        case 'C':
+            return 5;
+        default:
+            return 0;
     }
 }
 
-function isM5Plus(xrayClass: string | null): boolean {
+export function isM5Plus(xrayClass: string | null): boolean {
     const parsed = getFlareClass(xrayClass);
     if (!parsed) return false;
     return (
@@ -59,7 +59,7 @@ function isM5Plus(xrayClass: string | null): boolean {
 // Individual signal scorers
 // ---------------------------------------------------------------------------
 
-function scoreGeomagnetic(kp: number | null): number {
+export function scoreGeomagnetic(kp: number | null): number {
     if (kp === null) return 0;
     if (kp >= 7) return 30;
     if (kp >= 5) return 15;
@@ -67,7 +67,7 @@ function scoreGeomagnetic(kp: number | null): number {
     return 0;
 }
 
-function scoreRadiation(protonFlux: number | null): number {
+export function scoreRadiation(protonFlux: number | null): number {
     if (protonFlux === null) return 0;
     if (protonFlux >= 100) return 25;
     if (protonFlux >= 10) return 15;
@@ -75,21 +75,21 @@ function scoreRadiation(protonFlux: number | null): number {
     return 0;
 }
 
-function scoreSolarWind(speed: number | null): number {
+export function scoreSolarWind(speed: number | null): number {
     if (speed === null) return 0;
     if (speed > 700) return 10;
     if (speed > 500) return 5;
     return 0;
 }
 
-function scoreImfBz(bz: number | null): number {
+export function scoreImfBz(bz: number | null): number {
     if (bz === null) return 0;
     if (bz < -10) return 10;
     if (bz < -5) return 5;
     return 0;
 }
 
-function scoreNeo(hasPHA: boolean): number {
+export function scoreNeo(hasPHA: boolean): number {
     return hasPHA ? 5 : 0;
 }
 
@@ -97,7 +97,7 @@ function scoreNeo(hasPHA: boolean): number {
 // Compound synergy bonuses
 // ---------------------------------------------------------------------------
 
-function computeCompoundBonus(
+export function computeCompoundBonus(
     xrayClass: string | null,
     kp: number | null,
     protonFlux: number | null,

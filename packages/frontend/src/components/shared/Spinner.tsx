@@ -6,9 +6,9 @@ interface SpinnerProps {
 export function Spinner({ size = 16, className = '' }: SpinnerProps) {
     return (
         <svg
-            className={ `animate-spin text-accent ${className}` }
-            width={ size }
-            height={ size }
+            className={`animate-spin text-accent ${className}`}
+            width={size}
+            height={size}
             viewBox="0 0 24 24"
             fill="none"
         >

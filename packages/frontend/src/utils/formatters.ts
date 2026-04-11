@@ -4,8 +4,7 @@ import type { WeatherStatus } from './colors';
 export function formatTimestamp(iso: string): string {
     try {
         return formatDistanceToNow(parseISO(iso), { addSuffix: true });
-    }
-    catch {
+    } catch {
         return '---';
     }
 }

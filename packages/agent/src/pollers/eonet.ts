@@ -35,9 +35,9 @@ export async function pollEONET(): Promise<void> {
                 date: latestGeometry?.date ?? new Date().toISOString(),
                 coordinates: latestGeometry?.coordinates
                     ? {
-                        type: latestGeometry.type,
-                        coordinates: latestGeometry.coordinates,
-                    }
+                          type: latestGeometry.type,
+                          coordinates: latestGeometry.coordinates,
+                      }
                     : null,
             };
         });
@@ -45,8 +45,7 @@ export async function pollEONET(): Promise<void> {
         await upsertEonetEvents(normalized);
         await updatePollStatus('eonet', true);
         console.log(`[EONET] OK — ${normalized.length} events`);
-    }
-    catch (error) {
+    } catch (error) {
         const msg = error instanceof Error ? error.message : String(error);
         console.error(`[EONET] FAILED: ${msg}`);
         await updatePollStatus('eonet', false, msg);

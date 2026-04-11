@@ -1,6 +1,5 @@
 import type {
     RiskState,
-    RiskBreakdown,
     MissionBrief,
     DONKIFlare,
     DONKICME,
@@ -67,9 +66,7 @@ export async function upsertFlares(incoming: DONKIFlare[]): Promise<void> {
     }
     // Prune older than 30 days
     const cutoff = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
-    flares = [...byId.values()].filter(
-        (f) => new Date(f.peakTime) >= cutoff,
-    );
+    flares = [...byId.values()].filter((f) => new Date(f.peakTime) >= cutoff);
 }
 
 export async function getRecentFlares(since: Date): Promise<DONKIFlare[]> {
@@ -77,8 +74,7 @@ export async function getRecentFlares(since: Date): Promise<DONKIFlare[]> {
         .filter((f) => new Date(f.peakTime) >= since)
         .sort(
             (a, b) =>
-                new Date(b.peakTime).getTime() -
-                new Date(a.peakTime).getTime(),
+                new Date(b.peakTime).getTime() - new Date(a.peakTime).getTime(),
         );
 }
 
@@ -94,9 +90,7 @@ export async function upsertCMEs(incoming: DONKICME[]): Promise<void> {
         byId.set(c.activityID, c);
     }
     const cutoff = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
-    cmes = [...byId.values()].filter(
-        (c) => new Date(c.startTime) >= cutoff,
-    );
+    cmes = [...byId.values()].filter((c) => new Date(c.startTime) >= cutoff);
 }
 
 export async function getRecentCMEs(since: Date): Promise<DONKICME[]> {
@@ -155,10 +149,7 @@ export async function upsertEonetEvents(
     }
     // Keep newest 20
     eonetEvents = [...byId.values()]
-        .sort(
-            (a, b) =>
-                new Date(b.date).getTime() - new Date(a.date).getTime(),
-        )
+        .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
         .slice(0, 20);
 }
 
@@ -179,15 +170,11 @@ export async function saveRiskAssessment(risk: RiskState): Promise<void> {
 }
 
 export async function getLatestRisk(): Promise<RiskState | null> {
-    return riskHistory.length > 0
-        ? riskHistory[riskHistory.length - 1]
-        : null;
+    return riskHistory.length > 0 ? riskHistory[riskHistory.length - 1] : null;
 }
 
 export async function getPreviousRisk(): Promise<RiskState | null> {
-    return riskHistory.length >= 2
-        ? riskHistory[riskHistory.length - 2]
-        : null;
+    return riskHistory.length >= 2 ? riskHistory[riskHistory.length - 2] : null;
 }
 
 // ---------------------------------------------------------------------------

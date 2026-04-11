@@ -13,9 +13,24 @@ import { Server } from 'socket.io';
 import prisma, { disconnectDb } from './db';
 import { hydrateFromDb, getLatestState } from './agentState';
 import { createRouter } from './routes';
-import { startTleRefreshLoop, propagateAll } from './satellites';
+import { refreshTles, startTleRefreshLoop, propagateAll } from './satellites';
 import { computePerSatelliteRisk, getTopRiskSatellites } from './satRisk';
+import {
+    securityHeaders,
+    apiRateLimit,
+    requireApiKey,
+    requireInternalSecret,
+    errorHandler,
+    requestLogger,
+} from './middleware';
+import { validateEnv } from './env';
 import type { SatPosition, SatRiskSummary, RiskLevel } from '@sentinel/shared';
+
+// ---------------------------------------------------------------------------
+// Environment validation
+// ---------------------------------------------------------------------------
+
+const env = validateEnv();
 
 // ---------------------------------------------------------------------------
 // Server setup
@@ -27,10 +42,15 @@ const io = new Server(httpServer, {
     cors: { origin: '*' },
 });
 
-const PORT = process.env.GATEWAY_PORT || 3001;
+const PORT = env.GATEWAY_PORT;
 
+app.use(securityHeaders);
+app.use(requestLogger);
 app.use(cors());
 app.use(express.json({ limit: '1mb' }));
+app.use('/api/', apiRateLimit);
+app.use('/api/', requireApiKey(env));
+app.use('/internal/', requireInternalSecret(env));
 
 // ---------------------------------------------------------------------------
 // Broadcast helper (injected into routes)
@@ -50,6 +70,7 @@ const router = createRouter({
     getTopRisk: () => getTopRisk(),
 });
 app.use(router);
+app.use(errorHandler);
 
 // ---------------------------------------------------------------------------
 // Per-satellite risk enrichment cache
@@ -85,13 +106,21 @@ function enrichAndBroadcast(): SatPosition[] {
     }> = [];
 
     const levelOrder: Record<RiskLevel, number> = {
-        LOW: 0, MODERATE: 1, HIGH: 2, CRITICAL: 3,
+        LOW: 0,
+        MODERATE: 1,
+        HIGH: 2,
+        CRITICAL: 3,
     };
 
     for (const sat of enriched) {
         const prev = prevSatLevels.get(sat.id);
         const curr = sat.riskLevel;
-        if (prev && curr && levelOrder[curr] > levelOrder[prev] && levelOrder[curr] >= 2) {
+        if (
+            prev &&
+            curr &&
+            levelOrder[curr] > levelOrder[prev] &&
+            levelOrder[curr] >= 2
+        ) {
             satAlerts.push({
                 noradId: sat.id,
                 name: sat.name,
@@ -110,22 +139,24 @@ function enrichAndBroadcast(): SatPosition[] {
         io.emit('satellite-risk-alerts', satAlerts);
 
         // Persist to database (fire-and-forget, capped to avoid DB flood)
-        // Requires `npx prisma migrate dev` after schema update
         for (const alert of satAlerts.slice(0, 20)) {
-            (prisma as any).satelliteRiskAlert?.create({ // eslint-disable-line @typescript-eslint/no-explicit-any
-                data: {
-                    noradId: alert.noradId,
-                    name: alert.name,
-                    regime: alert.orbitRegime,
-                    riskScore: alert.riskScore,
-                    riskLevel: alert.riskLevel,
-                    prevLevel: alert.prevLevel,
-                    threats: alert.threats,
-                },
-            })?.catch((err: unknown) => {
-                const msg = err instanceof Error ? err.message : String(err);
-                console.error(`[SatRisk] Failed to persist alert: ${msg}`);
-            });
+            prisma.satelliteRiskAlert
+                .create({
+                    data: {
+                        noradId: alert.noradId,
+                        name: alert.name,
+                        regime: alert.orbitRegime,
+                        riskScore: alert.riskScore,
+                        riskLevel: alert.riskLevel,
+                        prevLevel: alert.prevLevel,
+                        threats: alert.threats,
+                    },
+                })
+                .catch((err: unknown) => {
+                    const msg =
+                        err instanceof Error ? err.message : String(err);
+                    console.error(`[SatRisk] Failed to persist alert: ${msg}`);
+                });
         }
     }
 
@@ -177,6 +208,11 @@ async function start(): Promise<void> {
 
     await hydrateFromDb();
 
+    // Await initial TLE load so the cache is populated before serving requests
+    await refreshTles();
+    enrichAndBroadcast();
+
+    // Start the periodic TLE refresh (every 2h) and the position broadcast loop
     startTleRefreshLoop();
 
     httpServer.listen(PORT, () => {

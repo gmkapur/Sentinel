@@ -1,12 +1,17 @@
-# Orbit Sentinel — Voice Alert System PRD
+# Voice Alert System
 
-**Feature:** Agentic ElevenLabs + Twilio phone call alerts
-**Dependency:** Agent service (`:3002`) risk engine
-**Trigger:** Risk level transitions to `HIGH` or `CRITICAL`
+| Field | Value |
+|-------|-------|
+| **Type** | Product Requirements Document (PRD) |
+| **Status** | Design Complete |
+| **Feature** | Agentic ElevenLabs + Twilio phone call alerts |
+| **Service** | Agent (`:3002`) |
+| **Trigger** | Risk level transitions to `HIGH` or `CRITICAL` |
+| **Dependencies** | ElevenLabs API, Twilio phone number |
 
 ---
 
-## 1. Overview
+## Overview
 
 When the agent detects a high-risk space weather event, it initiates an outbound phone call via ElevenLabs Conversational AI + Twilio. A voice AI agent calls the operator's phone, delivers a concise spoken mission brief (risk level, primary threat, recommended action), and directs them to the dashboard for full details. The operator can ask follow-up questions conversationally — the ElevenLabs agent has the full risk context injected as its system prompt.
 
@@ -31,11 +36,11 @@ Agent risk engine ──► HIGH/CRITICAL transition detected
 
 ---
 
-## 2. Architecture
+## Architecture
 
-The voice alert system lives **inside the existing agent service** (`:3002`) as a new module — not a separate microservice. It hooks into the existing `evaluate()` → `pushToGateway()` pipeline.
+The voice alert system lives **inside the existing agent service** (`:3002`) as a new module — not a separate microservice. It hooks into the existing `evaluate()` -> `pushToGateway()` pipeline.
 
-### New files in `packages/agent/src/`
+### New Files
 
 ```
 packages/agent/src/
@@ -44,7 +49,7 @@ packages/agent/src/
   └── alertConfig.ts       # Phone numbers, preferences, cooldown settings
 ```
 
-### Data flow
+### Data Flow
 
 ```
 riskEngine.evaluate()
@@ -71,11 +76,11 @@ phoneAlert.shouldCall(riskState, previousState)
 
 ---
 
-## 3. ElevenLabs Agent Configuration
+## ElevenLabs Agent Configuration
 
-A dedicated ElevenLabs Conversational AI agent is created in the ElevenLabs dashboard (not via API — one-time setup). This agent handles all Orbit Sentinel alert calls.
+A dedicated Conversational AI agent is created in the ElevenLabs dashboard (one-time setup, not via API).
 
-### Agent system prompt (configured in ElevenLabs dashboard)
+### System Prompt
 
 ```
 You are Orbit Sentinel, an autonomous space weather risk analyst. You are calling
@@ -87,7 +92,8 @@ Structure your opening message as:
 2. State the risk level and score
 3. Name the primary threat in one sentence
 4. State the recommended action
-5. Direct them to the dashboard: "Full details and maneuver windows are available on your Orbit Sentinel dashboard."
+5. Direct them to the dashboard: "Full details and maneuver windows are available
+   on your Orbit Sentinel dashboard."
 
 If the operator asks follow-up questions, answer from the context provided.
 Keep answers under 30 seconds of spoken audio. If you don't have specific data,
@@ -96,22 +102,22 @@ say "That detail is available on your dashboard" rather than guessing.
 Do not discuss topics unrelated to the current space weather alert.
 ```
 
-### Agent settings
+### Settings
 
 | Setting | Value |
 |---------|-------|
-| Voice | `Rachel` (or any clear, professional ElevenLabs voice) |
-| Model | ElevenLabs default Conversational AI model |
+| Voice | `Rachel` (or any clear, professional voice) |
+| Model | ElevenLabs default Conversational AI |
 | First message | Dynamically injected per call via `conversation_initiation_client_data` |
 | Language | English |
 | Max call duration | 3 minutes |
-| TTS output format | μ-law 8kHz (required for telephony) |
+| TTS output format | u-law 8kHz (required for telephony) |
 
 ---
 
-## 4. API Integration
+## API Integration
 
-### 4a. ElevenLabs outbound call API
+### ElevenLabs Outbound Call
 
 **Endpoint:** `POST https://api.elevenlabs.io/v1/convai/twilio/outbound-call`
 
@@ -121,7 +127,7 @@ xi-api-key: {ELEVENLABS_API_KEY}
 Content-Type: application/json
 ```
 
-**Request body:**
+**Request:**
 ```json
 {
   "agent_id": "your_agent_id",
@@ -150,7 +156,7 @@ Content-Type: application/json
 }
 ```
 
-**The `dynamic_variables` are injected into the agent's first message template** configured in the ElevenLabs dashboard:
+**First message template** (configured in ElevenLabs dashboard):
 
 ```
 This is Orbit Sentinel, your automated mission risk system. We are currently at
@@ -159,21 +165,19 @@ Our recommendation is {{recommendation}}: {{action}}.
 Full details and maneuver windows are available on your dashboard. Do you have any questions?
 ```
 
-### 4b. Twilio setup (prerequisite)
+### Twilio Setup (Prerequisite)
 
-Twilio number must be imported into ElevenLabs dashboard under **Phone Numbers → Import Twilio Number**. ElevenLabs auto-configures webhooks. No TwiML code needed.
+Twilio number must be imported into ElevenLabs dashboard under **Phone Numbers -> Import Twilio Number**. ElevenLabs auto-configures webhooks — no TwiML code needed.
 
-**Required Twilio config:**
-- A purchased Twilio phone number with voice capability
-- Account SID + Auth Token (entered in ElevenLabs dashboard)
+**Required:** A purchased Twilio phone number with voice capability, Account SID + Auth Token (entered in ElevenLabs dashboard).
 
 ---
 
-## 5. Alert Orchestration Logic
+## Alert Orchestration
 
-### `packages/agent/src/phoneAlert.ts`
+### Configuration
 
-```ts
+```typescript
 interface PhoneAlertConfig {
   enabled: boolean;
   operatorPhones: string[];       // E.164 format: ["+15551234567"]
@@ -184,20 +188,20 @@ interface PhoneAlertConfig {
 }
 ```
 
-### Trigger rules
+### Trigger Rules
 
 | Condition | Action |
 |-----------|--------|
 | Level transitions to `HIGH` | Call if cooldown expired |
 | Level transitions to `CRITICAL` | Call immediately (bypasses cooldown) |
-| Level escalates `HIGH → CRITICAL` during cooldown | Call again (escalation override) |
-| Level stays `HIGH` or `CRITICAL` across evaluations | No call (already alerted) |
-| Level de-escalates `CRITICAL → HIGH → MODERATE` | No call (improvement) |
+| Level escalates `HIGH -> CRITICAL` during cooldown | Call again (escalation override) |
+| Level stays `HIGH`/`CRITICAL` across evaluations | No call (already alerted) |
+| Level de-escalates | No call (improvement) |
 | Max calls/hour reached | Skip, log warning |
 
-### Cooldown state
+### Cooldown State
 
-```ts
+```typescript
 interface CallState {
   lastCallTime: number;
   lastCallLevel: RiskLevel;
@@ -207,9 +211,9 @@ interface CallState {
 }
 ```
 
-### Decision function
+### Decision Function
 
-```ts
+```typescript
 function shouldCall(
   current: RiskState,
   previous: RiskState | null,
@@ -217,16 +221,17 @@ function shouldCall(
   config: PhoneAlertConfig
 ): { call: boolean; reason: string } {
   if (!config.enabled) return { call: false, reason: 'disabled' };
-  if (!config.triggerLevels.includes(current.level)) return { call: false, reason: 'level below threshold' };
+  if (!config.triggerLevels.includes(current.level))
+    return { call: false, reason: 'level below threshold' };
 
   // Level didn't change — already alerted
-  if (previous && current.level === previous.level) return { call: false, reason: 'level unchanged' };
+  if (previous && current.level === previous.level)
+    return { call: false, reason: 'level unchanged' };
 
   // De-escalation — no call
   const levelOrder = { LOW: 0, MODERATE: 1, HIGH: 2, CRITICAL: 3 };
-  if (previous && levelOrder[current.level] < levelOrder[previous.level]) {
+  if (previous && levelOrder[current.level] < levelOrder[previous.level])
     return { call: false, reason: 'de-escalation' };
-  }
 
   // Rate limit
   const now = Date.now();
@@ -234,18 +239,17 @@ function shouldCall(
     callState.callsThisHour = 0;
     callState.hourStart = now;
   }
-  if (callState.callsThisHour >= config.maxCallsPerHour) {
+  if (callState.callsThisHour >= config.maxCallsPerHour)
     return { call: false, reason: 'rate limit' };
-  }
 
   // CRITICAL bypasses cooldown
-  if (current.level === 'CRITICAL') return { call: true, reason: 'critical escalation' };
+  if (current.level === 'CRITICAL')
+    return { call: true, reason: 'critical escalation' };
 
   // Cooldown check for HIGH
   const cooldownMs = config.cooldownMinutes * 60 * 1000;
-  if (now - callState.lastCallTime < cooldownMs) {
+  if (now - callState.lastCallTime < cooldownMs)
     return { call: false, reason: 'cooldown active' };
-  }
 
   return { call: true, reason: 'threshold crossed' };
 }
@@ -253,15 +257,14 @@ function shouldCall(
 
 ---
 
-## 6. Integration Point in Agent
+## Integration Point
 
-The phone alert hooks into the existing `runEvaluation()` function in `packages/agent/src/index.ts`:
+Hooks into `runEvaluation()` in `packages/agent/src/index.ts`:
 
-```ts
-// Inside runEvaluation(), after risk scoring and brief generation:
+```typescript
 const { riskState, levelChanged, scoreDelta } = evaluate();
 
-// ... existing brief generation logic ...
+// ... existing brief generation ...
 
 // Phone alert check
 if (levelChanged) {
@@ -277,60 +280,34 @@ await pushToGateway(riskState, brief);
 
 ---
 
-## 7. ElevenLabs Client
+## New API Endpoints
 
-### `packages/agent/src/elevenLabsClient.ts`
+### Agent (`:3002`)
 
-```ts
-async function initiateOutboundCall(params: {
-  riskState: RiskState;
-  brief: MissionBrief;
-  toNumber: string;
-}): Promise<{ conversationId: string; callSid: string } | null> {
-  const primaryThreat = params.brief.threats[0];
-  const action = params.brief.maneuver_windows[0];
+| Route | Method | Purpose |
+|-------|--------|---------|
+| `/alerts/call-history` | GET | Call log: timestamps, risk levels, conversation IDs |
+| `/alerts/test-call` | POST | Test call with current risk state (dev/staging only) |
 
-  const response = await axios.post(
-    'https://api.elevenlabs.io/v1/convai/twilio/outbound-call',
-    {
-      agent_id: process.env.ELEVENLABS_AGENT_ID,
-      agent_phone_number_id: process.env.ELEVENLABS_PHONE_NUMBER_ID,
-      to_number: params.toNumber,
-      conversation_initiation_client_data: {
-        dynamic_variables: {
-          risk_level: params.riskState.level,
-          risk_score: String(params.riskState.score),
-          primary_threat: primaryThreat
-            ? `${primaryThreat.type.replace('_', ' ')}: ${primaryThreat.detail}`
-            : `Risk score elevated to ${params.riskState.score}/100`,
-          recommendation: params.brief.recommendation,
-          action: action?.action || 'Monitor dashboard for maneuver recommendations',
-          dashboard_url: process.env.DASHBOARD_URL || 'https://orbit-sentinel.app',
-        },
-      },
-    },
-    {
-      headers: {
-        'xi-api-key': process.env.ELEVENLABS_API_KEY!,
-        'Content-Type': 'application/json',
-      },
-      timeout: 15000,
-    }
-  );
+### Gateway (`:3001`)
 
-  return {
-    conversationId: response.data.conversation_id,
-    callSid: response.data.callSid,
-  };
-}
-```
+| Route | Method | Purpose |
+|-------|--------|---------|
+| `/api/agent/call-history` | GET | Proxied to agent `/alerts/call-history` |
 
 ---
 
-## 8. New Environment Variables
+## Frontend Changes
+
+**AlertPanel:** Add "Call History" section showing timestamp, risk level, call duration, and conversation ID for each outbound call.
+
+**RiskBanner:** Add pulsing phone icon when a call is active or was recently placed.
+
+---
+
+## Environment Variables
 
 ```env
-# Voice alerts
 ELEVENLABS_API_KEY=your_elevenlabs_api_key
 ELEVENLABS_AGENT_ID=your_conversational_agent_id
 ELEVENLABS_PHONE_NUMBER_ID=your_imported_twilio_number_id
@@ -338,54 +315,21 @@ ALERT_PHONE_NUMBERS=+15551234567,+15559876543
 ALERT_COOLDOWN_MINUTES=30
 ALERT_ENABLED=true
 DASHBOARD_URL=https://orbit-sentinel.app
-
-# Twilio (configured via ElevenLabs dashboard, not in code)
-# TWILIO_ACCOUNT_SID and TWILIO_AUTH_TOKEN are entered in ElevenLabs UI
 ```
 
 ---
 
-## 9. New Agent Router Endpoints
+## Cost Estimate
 
-Two new routes on the agent's Express router:
-
-| Route | Method | Purpose |
-|-------|--------|---------|
-| `/alerts/call-history` | GET | Returns call log: timestamps, risk levels, conversation IDs, durations |
-| `/alerts/test-call` | POST | Triggers a test call with current risk state (dev/staging only) |
-
----
-
-## 10. Gateway + Frontend Changes
-
-### Gateway
-
-Add proxy route: `GET /api/agent/call-history` → proxies to agent `:3002/alerts/call-history`
-
-### Frontend — AlertPanel additions
-
-Add a "Call history" section below alert history showing:
-- Timestamp of each outbound call
-- Risk level that triggered it
-- Call duration (if available from ElevenLabs callback)
-- Conversation ID (links to ElevenLabs dashboard for transcript)
-
-Add a visual indicator in the `RiskBanner` when a phone call is active or was recently placed (pulsing phone icon).
+| Service | Cost |
+|---------|------|
+| ElevenLabs | Free tier: 10k chars/month. Scale: ~$99/mo for production volume. |
+| Twilio | ~$1.15/mo per number + ~$0.014/min outbound |
+| **MVP testing** | Under $5/month |
 
 ---
 
-## 11. Required API Keys & Accounts
-
-| Service | Cost | Setup |
-|---------|------|-------|
-| **ElevenLabs** | Free tier: 10k chars/month. Scale plan ~$99/mo for production call volume. | Sign up → create Conversational AI agent → import Twilio number |
-| **Twilio** | ~$1.15/mo per phone number + ~$0.014/min outbound calls | Sign up → buy a number → note Account SID + Auth Token |
-
-**Total cost for MVP testing:** Under $5/month (a few test calls on Twilio + ElevenLabs free tier).
-
----
-
-## 12. Example Call Transcript
+## Example Call Transcript
 
 ```
 [Phone rings]
@@ -414,14 +358,14 @@ AI: "Understood. Stay safe. Orbit Sentinel will continue monitoring and will
 
 ---
 
-## 13. One-Time Setup Checklist
+## Setup Checklist
 
-1. Create ElevenLabs account, get API key
-2. Create a Conversational AI agent in ElevenLabs dashboard with the system prompt from Section 3
-3. Configure the first message template with `{{dynamic_variables}}` placeholders
+1. Create ElevenLabs account and get API key
+2. Create Conversational AI agent with the system prompt above
+3. Configure first message template with `{{dynamic_variables}}` placeholders
 4. Buy a Twilio phone number with voice capability
-5. Import the Twilio number into ElevenLabs (Phone Numbers → Import → enter SID + Auth Token)
-6. Note the `agent_id` and `agent_phone_number_id` from ElevenLabs dashboard
-7. Add env vars to `.env`
+5. Import Twilio number into ElevenLabs (Phone Numbers -> Import)
+6. Note `agent_id` and `agent_phone_number_id` from ElevenLabs dashboard
+7. Add environment variables to `.env`
 8. Set `ALERT_ENABLED=true`
 9. Test with `POST :3002/alerts/test-call`

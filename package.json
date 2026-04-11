@@ -10,11 +10,15 @@
     "format:check": "prettier --check packages/*/src/**/*.ts packages/*/src/**/*.tsx",
     "format": "prettier --write packages/*/src/**/*.ts packages/*/src/**/*.tsx",
     "dev": "concurrently -n agent,gateway,frontend -c blue,green,magenta \"npm run dev -w packages/agent\" \"npm run dev -w packages/gateway\" \"npm run dev -w packages/frontend\"",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
     "postinstall": "husky"
   },
   "devDependencies": {
     "@eslint/js": "^9.25.0",
     "@typescript-eslint/parser": "^8.58.1",
+    "@vitest/coverage-v8": "^4.1.4",
     "concurrently": "^9.2.1",
     "eslint": "^9.25.0",
     "eslint-config-prettier": "^10.1.2",
@@ -24,6 +28,7 @@
     "husky": "^9.1.7",
     "prettier": "^3.5.3",
     "typescript": "^5.8.3",
-    "typescript-eslint": "^8.30.1"
+    "typescript-eslint": "^8.30.1",
+    "vitest": "^4.1.4"
   }
 }

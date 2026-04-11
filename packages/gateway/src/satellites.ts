@@ -22,18 +22,63 @@ interface TleRecord {
 const tleCache = new Map<number, TleRecord>();
 
 const CELESTRAK_BASE = 'https://celestrak.org/NORAD/elements/gp.php';
-const GROUPS = ['stations', 'active'];
+// Use several smaller groups instead of 'active' (which CelesTrak 403s for bulk downloads).
+// These together yield 200+ unique satellites across key constellations and orbits.
+const GROUPS = [
+    'stations', // ~15  — ISS, Tiangong, crew/cargo vehicles
+    'weather', // ~50  — NOAA, EUMETSAT, DMSP weather sats
+    'resource', // ~40  — Earth observation (Landsat, Sentinel, etc.)
+    'geo', // ~500 — Geostationary belt
+    'iridium', // ~75  — Iridium NEXT constellation
+    'starlink', // ~100+ — Starlink (partial, recent launches)
+    'globalstar', // ~24  — Globalstar constellation
+    'gps-ops', // ~31  — GPS operational constellation
+    'galileo', // ~28  — Galileo GNSS
+];
+const FETCH_TIMEOUT_MS = 60_000; // 60s for larger groups
+const MAX_RETRIES = 3;
 const REFRESH_INTERVAL_MS = 2 * 60 * 60 * 1000; // 2 hours
 
 // ---------------------------------------------------------------------------
-// TLE Fetching
+// Retry helper
+// ---------------------------------------------------------------------------
+
+async function fetchWithRetry<T>(
+    fn: () => Promise<T>,
+    label: string,
+): Promise<T> {
+    for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+        try {
+            return await fn();
+        } catch (err) {
+            const msg = err instanceof Error ? err.message : String(err);
+            if (attempt === MAX_RETRIES) {
+                throw err;
+            }
+            const backoffMs = Math.pow(2, attempt - 1) * 1000; // 1s, 2s, 4s
+            console.warn(
+                `[Satellites] ${label} attempt ${attempt}/${MAX_RETRIES} failed (${msg}), retrying in ${backoffMs}ms…`,
+            );
+            await new Promise((resolve) => setTimeout(resolve, backoffMs));
+        }
+    }
+    // Unreachable, but satisfies TypeScript
+    throw new Error(`${label} failed after ${MAX_RETRIES} retries`);
+}
+
+// ---------------------------------------------------------------------------
+// TLE Fetching (3LE format — name + two TLE lines per satellite)
 // ---------------------------------------------------------------------------
 
 async function fetchTleGroup(group: string): Promise<TleRecord[]> {
     const url = `${CELESTRAK_BASE}?GROUP=${group}&FORMAT=3le`;
     const response = await axios.get<string>(url, {
-        timeout: 30_000,
+        timeout: FETCH_TIMEOUT_MS,
         responseType: 'text',
+        headers: {
+            'User-Agent':
+                'OrbitSentinel/1.0 (space-situational-awareness; contact@orbsentinel.dev)',
+        },
     });
 
     const lines = response.data.trim().split('\n');
@@ -56,8 +101,7 @@ async function fetchTleGroup(group: string): Promise<TleRecord[]> {
         try {
             const satrec = satellite.twoline2satrec(line1, line2);
             records.push({ noradId, name, line1, line2, satrec });
-        }
-        catch {
+        } catch {
             // Skip satellites with unparseable TLEs
         }
     }
@@ -67,23 +111,31 @@ async function fetchTleGroup(group: string): Promise<TleRecord[]> {
 
 export async function refreshTles(): Promise<void> {
     const results = await Promise.allSettled(
-        GROUPS.map((g) => fetchTleGroup(g))
+        GROUPS.map((g) => fetchWithRetry(() => fetchTleGroup(g), `group:${g}`)),
     );
 
     let added = 0;
-    for (const result of results) {
+    for (let i = 0; i < results.length; i++) {
+        const result = results[i];
         if (result.status === 'fulfilled') {
             for (const record of result.value) {
                 tleCache.set(record.noradId, record);
                 added++;
             }
-        }
-        else {
-            console.error('[Satellites] TLE fetch failed:', result.reason?.message ?? result.reason);
+            console.log(
+                `[Satellites] ${GROUPS[i]}: ${result.value.length} satellites loaded`,
+            );
+        } else {
+            console.error(
+                `[Satellites] ${GROUPS[i]} fetch failed after ${MAX_RETRIES} retries:`,
+                result.reason?.message ?? result.reason,
+            );
         }
     }
 
-    console.log(`[Satellites] TLE cache updated: ${tleCache.size} satellites (${added} processed)`);
+    console.log(
+        `[Satellites] TLE cache updated: ${tleCache.size} satellites (${added} processed)`,
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -112,8 +164,7 @@ export function propagateAll(): SatPosition[] {
                 lng: satellite.degreesLong(geo.longitude),
                 alt: geo.height,
             });
-        }
-        catch {
+        } catch {
             // Skip satellites with propagation errors
         }
     }
@@ -126,7 +177,7 @@ export function propagateAll(): SatPosition[] {
 // ---------------------------------------------------------------------------
 
 export function getSatelliteById(
-    noradId: number
+    noradId: number,
 ): (SatPosition & { line1: string; line2: string }) | null {
     const record = tleCache.get(noradId);
     if (!record) {
@@ -154,8 +205,7 @@ export function getSatelliteById(
             line1: record.line1,
             line2: record.line2,
         };
-    }
-    catch {
+    } catch {
         return null;
     }
 }
@@ -173,13 +223,12 @@ export function getSatelliteCount(): number {
 // ---------------------------------------------------------------------------
 
 export function startTleRefreshLoop(): void {
-    refreshTles().catch((err) =>
-        console.error('[Satellites] Initial TLE fetch failed:', err.message ?? err)
-    );
-
     setInterval(() => {
         refreshTles().catch((err) =>
-            console.error('[Satellites] TLE refresh failed:', err.message ?? err)
+            console.error(
+                '[Satellites] TLE refresh failed:',
+                err.message ?? err,
+            ),
         );
     }, REFRESH_INTERVAL_MS);
 }

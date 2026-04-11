@@ -1,103 +1,128 @@
 # Tech Stack
 
 ## Runtime & Language
-- **Language**: TypeScript (strict mode, ES2022 target)
-- **Runtime**: Node.js 20+
-- **Module system**: CommonJS (backend services), ESM (frontend via Vite)
-- **Target platforms**: Linux/macOS/Windows (development), any Node.js hosting (deployment)
+
+| Aspect | Choice | Rationale |
+|--------|--------|-----------|
+| **Language** | TypeScript (strict mode, ES2022 target) | Type safety across monorepo; shared interfaces between services |
+| **Runtime** | Node.js 20+ | Native fetch, stable ESM, LTS support |
+| **Module system** | CommonJS (backend), ESM (frontend via Vite) | CommonJS for backend compatibility with satellite.js; ESM via Vite bundler |
+| **Target platforms** | Linux/macOS/Windows (dev), any Node.js host (prod) | — |
 
 ## Package Management
-- **Package manager**: npm
-- **Workspace setup**: npm workspaces — root `package.json` with `"workspaces": ["packages/*"]`
-- **Lock file**: `package-lock.json` — always commit this
-- **Install command**: `npm install` (from root installs all workspace packages)
+
+| Aspect | Choice |
+|--------|--------|
+| **Manager** | npm |
+| **Workspace** | npm workspaces — root `package.json` with `"workspaces": ["packages/*"]` |
+| **Lock file** | `package-lock.json` (always committed) |
+| **Install** | `npm install` from root installs all workspace packages |
+
+---
 
 ## Frameworks & Libraries
 
-### Core (Agent Service — `packages/agent`)
-| Library | Version | Purpose | Notes |
-|---------|---------|---------|-------|
-| `express` | ^4.21 | HTTP server and REST API routing | Lightweight 6-route API |
-| `node-cron` | ^3.0 | Cron-based scheduling for data pollers | Replaces BullMQ/Redis for MVP simplicity |
-| `axios` | ^1.7 | HTTP client for external API requests + Claude API | Used by all pollers and LLM module |
-| `node-cache` | ^5.1 | In-memory TTL cache | Source-specific TTLs (300s–86400s) |
-| `dotenv` | ^16.4 | Environment variable loading | Loads shared `.env` from root |
-| `uuid` | ^9.0 | UUID generation | Used for alert record IDs |
+### Agent Service (`packages/agent`)
 
-### Core (Gateway Service — `packages/gateway`)
-| Library | Version | Purpose | Notes |
-|---------|---------|---------|-------|
-| `express` | ^4.21 | HTTP server and REST API routing | Client-facing endpoints |
-| `socket.io` | ^4.7 | WebSocket server for real-time updates | Broadcasts risk-update, risk-alert, satellite-positions |
-| `satellite.js` | ^5.0 | SGP4/SDP4 orbital propagation | Uses `twoline2satrec()` with 3LE format |
-| `axios` | ^1.7 | HTTP client for agent proxy requests | Proxies brief/health to agent |
+| Library | Version | Purpose | Why This Library |
+|---------|---------|---------|-----------------|
+| `express` | ^4.21 | HTTP server + REST API | Industry standard; lightweight for 6-route API |
+| `@anthropic-ai/sdk` | latest | Claude API integration | Official SDK; type-safe; handles auth and retries |
+| `node-cron` | ^3.0 | Cron-scheduled data pollers | In-process scheduling; no Redis/BullMQ infrastructure needed |
+| `axios` | ^1.7 | HTTP client for external APIs | Used by all pollers for SWPC/DONKI/NeoWs/EONET |
+| `node-cache` | ^5.1 | In-memory TTL cache | Zero-infrastructure; source-specific TTLs (300s-86400s) |
+| `dotenv` | ^16.4 | Environment variable loading | Loads shared `.env` from monorepo root |
+| `uuid` | ^9.0 | UUID generation | Alert record IDs |
+
+### Gateway Service (`packages/gateway`)
+
+| Library | Version | Purpose | Why This Library |
+|---------|---------|---------|-----------------|
+| `express` | ^4.21 | HTTP server + REST API | Client-facing endpoints; consistent with agent |
+| `socket.io` | ^4.7 | WebSocket server | Real-time broadcasts (risk-update, satellite-positions) |
+| `satellite.js` | ^5.0 | SGP4/SDP4 orbital propagation | `twoline2satrec()` with 3LE format; the standard for JS orbit math |
+| `axios` | ^1.7 | HTTP client | Proxies requests to agent service |
 | `node-cache` | ^5.1 | In-memory TLE cache | 2-hour TTL for TLE data |
-| `cors` | ^2.8 | CORS middleware for Express | Required since frontend runs on separate Vite dev server |
-| `dotenv` | ^16.4 | Environment variable loading | Loads shared `.env` from root |
-| `uuid` | ^9.0 | UUID generation | Used for alert record IDs |
+| `cors` | ^2.8 | CORS middleware | Required: frontend on Vite dev server (different port) |
+| `dotenv` | ^16.4 | Environment variable loading | Loads shared `.env` from monorepo root |
+| `uuid` | ^9.0 | UUID generation | Alert record IDs |
 
-### Core (Frontend — `packages/frontend`)
-| Library | Version | Purpose | Notes |
-|---------|---------|---------|-------|
+### Frontend (`packages/frontend`)
+
+| Library | Version | Purpose | Why This Library |
+|---------|---------|---------|-----------------|
 | `react` | 18.x | UI framework | Standard React SPA |
-| `react-dom` | 18.x | React DOM renderer | |
-| `react-globe.gl` | latest | 3D globe visualization | Official satellite example available in repo |
-| `satellite.js` | ^5.0 | SGP4/SDP4 orbital propagation | Client-side propagation for smooth rendering |
+| `react-dom` | 18.x | React DOM renderer | — |
+| `react-globe.gl` | latest | 3D globe visualization | Official satellite example; fast integration |
+| `satellite.js` | ^5.0 | Client-side orbit propagation | Smooth rendering between server updates |
 | `socket.io-client` | latest | WebSocket client | Receives real-time updates from gateway |
-| `three` | latest | 3D rendering (peer dep of globe.gl) | Required by react-globe.gl |
+| `three` | latest | 3D rendering | Peer dependency of react-globe.gl |
 
-### Development (all packages)
-| Library | Version | Purpose |
-|---------|---------|---------|
+### Development Tooling
+
+| Tool | Version | Purpose |
+|------|---------|---------|
 | `typescript` | ^5.5+ | TypeScript compiler |
-| `tsx` | ^4.16 | TypeScript execution (dev mode with watch) |
-| `@types/express` | ^4.17 | Express type definitions |
-| `@types/node` | ^20.14 | Node.js type definitions |
-| `@types/node-cron` | ^3.0 | node-cron type definitions |
-| `@types/cors` | ^2.8 | cors type definitions |
-| `@types/uuid` | ^9.0 | uuid type definitions |
-| `@types/three` | latest | three.js type definitions |
+| `tsx` | ^4.16 | TypeScript execution with watch mode |
 | `vite` | latest | Frontend build tool and dev server |
-| `eslint` | ^9.25 | Linting (with TypeScript + React plugins) |
+| `eslint` | ^9.25 | Linting (TypeScript + React plugins) |
 | `prettier` | ^3.5 | Code formatting |
 | `husky` | ^9.1 | Git hooks (pre-commit lint) |
 
-## Shared Types
-- **Location**: `packages/shared/types.ts`
-- **Purpose**: TypeScript interfaces shared by agent and gateway services
-- **Key types**: `RiskState`, `RiskLevel`, `MissionBrief`, `SpaceWeatherState`, `AgentPushPayload`, `SatPosition`, `DONKIFlare`, `DONKICME`, `NEOObject`, `AlertRecord`
+---
 
-## Infrastructure
-- **Database**: None (in-memory node-cache for MVP)
-- **Cache**: node-cache (in-memory with per-source TTLs)
-- **Message queue**: None (node-cron handles scheduling)
-- **Search**: None
-- **File storage**: None
-- **Inter-service communication**: HTTP POST with shared secret header
+## Shared Types
+
+- **Location:** `packages/shared/types.ts`
+- **Purpose:** TypeScript interfaces shared by agent and gateway
+- **Key types:** `RiskState`, `RiskLevel`, `MissionBrief`, `SpaceWeatherState`, `AgentPushPayload`, `SatPosition`, `DONKIFlare`, `DONKICME`, `NEOObject`, `AlertRecord`
+- **Import:** Relative path from each service (`../../shared/types`)
+
+---
+
+## Infrastructure Decisions
+
+| Component | MVP Choice | Rationale | Post-MVP Path |
+|-----------|-----------|-----------|---------------|
+| **Database** | None (in-memory) | Zero setup; data is ephemeral | PostgreSQL + Prisma ORM |
+| **Cache** | node-cache | In-memory TTL; sub-ms reads | Redis for horizontal scaling |
+| **Message queue** | None (node-cron) | In-process scheduling sufficient | BullMQ for LLM request queue |
+| **Search** | None | Not needed for MVP | — |
+| **File storage** | None | Not needed | — |
+| **Inter-service** | HTTP POST + shared secret | Simple; 2-service architecture | gRPC or message bus at scale |
 
 ## DevOps & Tooling
-- **CI/CD**: GitHub Actions (`.github/workflows/lint.yml`) — lint + format check on push/PR
-- **Containerization**: None for MVP (skip Docker)
-- **Orchestration**: None
-- **Monitoring**: Console logging (structured logs post-MVP)
-- **Error tracking**: None for MVP
+
+| Component | Tool | Status |
+|-----------|------|--------|
+| **CI/CD** | GitHub Actions (`.github/workflows/lint.yml`) | Active — lint + format on push/PR |
+| **Containerization** | None | Skipped for MVP |
+| **Monitoring** | Console logging with `[Module]` prefixes | Structured JSON post-MVP |
+| **Error tracking** | None | Sentry post-MVP |
+
+---
 
 ## Version Constraints
-- Node.js >= 20 required for native fetch support and stable ESM
-- satellite.js ^5.0 used with CommonJS interop (`esModuleInterop: true` in tsconfig)
-- react-globe.gl requires `three` as a peer dependency — install it explicitly
-- Backend services use CommonJS modules (`"module": "commonjs"` in tsconfig)
-- Frontend uses ESM via Vite bundler
+
+| Constraint | Reason |
+|-----------|--------|
+| Node.js >= 20 | Native fetch support, stable ESM |
+| satellite.js ^5.0 | CommonJS interop via `esModuleInterop: true` |
+| react-globe.gl requires `three` | Must install three.js explicitly as peer dependency |
+| Backend = CommonJS | `"module": "commonjs"` in tsconfig for satellite.js compatibility |
+| Frontend = ESM | Via Vite bundler |
+
+---
 
 ## Environment Variables
 
-| Variable | Required | Description | Example |
-|----------|----------|-------------|---------|
-| `GATEWAY_PORT` | No | Gateway service port (default: 3001) | `3001` |
-| `AGENT_PORT` | No | Agent service port (default: 3002) | `3002` |
-| `GATEWAY_URL` | No | Gateway URL for agent push (default: `http://localhost:3001`) | `http://localhost:3001` |
-| `AGENT_URL` | No | Agent URL for gateway proxy (default: `http://localhost:3002`) | `http://localhost:3002` |
-| `NASA_API_KEY` | Yes | NASA API key for DONKI and NeoWs (free at api.nasa.gov) | `your-nasa-api-key` |
-| `ANTHROPIC_API_KEY` | No | Claude API key for LLM mission briefs (fallback briefs without it) | `sk-ant-...` |
-| `INTERNAL_SECRET` | No | Shared secret for agent→gateway auth (default: dev key) | `orbit-sentinel-internal-dev-key` |
-| `VITE_GATEWAY_URL` | No | Gateway URL for frontend (default: `http://localhost:3001`) | `http://localhost:3001` |
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `GATEWAY_PORT` | No | `3001` | Gateway service port |
+| `AGENT_PORT` | No | `3002` | Agent service port |
+| `GATEWAY_URL` | No | `http://localhost:3001` | Gateway URL for agent push |
+| `AGENT_URL` | No | `http://localhost:3002` | Agent URL for gateway proxy |
+| `NASA_API_KEY` | Yes | — | NASA API key (free at api.nasa.gov) |
+| `ANTHROPIC_API_KEY` | No | — | Claude API key for LLM briefs (fallback without it) |
+| `INTERNAL_SECRET` | No | dev key | Shared secret for agent -> gateway auth |
+| `VITE_GATEWAY_URL` | No | `http://localhost:3001` | Gateway URL for frontend |

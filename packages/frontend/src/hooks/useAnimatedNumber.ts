@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 
 export function useAnimatedNumber(
     target: number,
-    duration: number = 600
+    duration: number = 600,
 ): number {
     const [display, setDisplay] = useState(target);
     const animationRef = useRef<number | null>(null);
@@ -20,7 +20,9 @@ export function useAnimatedNumber(
             const elapsed = now - startTimeRef.current;
             const progress = Math.min(elapsed / duration, 1);
             const eased = 1 - Math.pow(1 - progress, 3);
-            const value = startValueRef.current + (target - startValueRef.current) * eased;
+            const value =
+                startValueRef.current +
+                (target - startValueRef.current) * eased;
             const rounded = Math.round(value);
 
             currentRef.current = rounded;

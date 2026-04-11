@@ -1,19 +1,24 @@
 # API Reference
 
 ## Overview
-- **Gateway Base URL**: `http://localhost:3001` (dev)
-- **Agent Base URL**: `http://localhost:3002` (dev, internal only)
-- **API style**: REST (JSON)
-- **Authentication**: None for public endpoints; `x-internal-secret` header for internal agent-push
-- **Content type**: `application/json`
-- **API versioning**: None (MVP)
+
+| Aspect | Detail |
+|--------|--------|
+| **Gateway base URL** | `http://localhost:3001` (development) |
+| **Agent base URL** | `http://localhost:3002` (internal only) |
+| **Style** | REST (JSON request/response) |
+| **Content type** | `application/json` |
+| **Authentication** | None for public endpoints; `x-internal-secret` header for internal push |
+| **Versioning** | None (MVP) |
+
+---
 
 ## Authentication
 
 ### Public API (Gateway)
 No authentication required. The gateway serves a read-only dashboard — all endpoints are publicly accessible.
 
-### Internal API (Agent → Gateway)
+### Internal API (Agent -> Gateway)
 The agent pushes data to the gateway using a shared secret:
 ```bash
 curl -X POST http://localhost:3001/internal/agent-push \
@@ -22,22 +27,25 @@ curl -X POST http://localhost:3001/internal/agent-push \
   -d '{ ... }'
 ```
 
-### External APIs (Agent → NASA/NOAA)
-- **NASA DONKI/NeoWs**: `api_key` query parameter (set via `NASA_API_KEY` env var)
-- **NOAA SWPC**: No authentication
-- **CelesTrak**: No authentication
-- **Claude API**: `x-api-key` header (set via `ANTHROPIC_API_KEY` env var)
+### External APIs (Agent -> NASA/NOAA)
+
+| Service | Auth Method |
+|---------|------------|
+| NASA DONKI/NeoWs | `api_key` query parameter (`NASA_API_KEY` env var) |
+| NOAA SWPC | None |
+| CelesTrak | None |
+| NASA EONET | None |
+| Claude API | `x-api-key` header (`ANTHROPIC_API_KEY` env var) |
 
 ---
 
 ## Gateway Endpoints (`:3001`)
 
-### Satellites
+### `GET /api/satellites`
 
-#### `GET /api/satellites`
 Returns current positions for all tracked satellites, propagated via SGP4 from cached TLEs.
 
-**Success response** (`200`):
+**Response** `200 OK`:
 ```json
 {
   "count": 542,
@@ -53,15 +61,19 @@ Returns current positions for all tracked satellites, propagated via SGP4 from c
 }
 ```
 
-#### `GET /api/satellites/:noradId`
+---
+
+### `GET /api/satellites/:noradId`
+
 Returns a single satellite's current position plus its TLE lines.
 
-**Path parameters**:
+**Path parameters:**
+
 | Param | Type | Description |
 |-------|------|-------------|
 | `noradId` | integer | NORAD catalog number |
 
-**Success response** (`200`):
+**Response** `200 OK`:
 ```json
 {
   "id": 25544,
@@ -74,17 +86,18 @@ Returns a single satellite's current position plus its TLE lines.
 }
 ```
 
-**Error response** (`404`):
+**Response** `404 Not Found`:
 ```json
 { "error": "Satellite 99999 not found" }
 ```
 
-### Status & Risk
+---
 
-#### `GET /api/status`
+### `GET /api/status`
+
 Returns the full current system state: risk assessment, mission brief, space weather, and metadata.
 
-**Success response** (`200`):
+**Response** `200 OK`:
 ```json
 {
   "risk": {
@@ -122,10 +135,13 @@ Returns the full current system state: risk assessment, mission brief, space wea
 }
 ```
 
-#### `GET /api/alerts`
-Returns alert history — records created each time the risk level changes. Maximum 100 records stored.
+---
 
-**Success response** (`200`):
+### `GET /api/alerts`
+
+Returns alert history — records created each time the risk level changes. Maximum 100 records.
+
+**Response** `200 OK`:
 ```json
 [
   {
@@ -133,20 +149,23 @@ Returns alert history — records created each time the risk level changes. Maxi
     "riskState": {
       "score": 72,
       "level": "CRITICAL",
-      "breakdown": { "..." : "..." },
+      "breakdown": { "...": "..." },
       "previousLevel": "HIGH",
       "updatedAt": 1712841600000
     },
-    "brief": { "..." : "..." },
+    "brief": { "...": "..." },
     "timestamp": 1712841600000
   }
 ]
 ```
 
-#### `GET /api/space-weather`
+---
+
+### `GET /api/space-weather`
+
 Returns the latest processed space weather state from the agent. Returns `null` if no agent data received yet.
 
-**Success response** (`200`):
+**Response** `200 OK`:
 ```json
 {
   "xray": { "flux": 1.5e-5, "classType": "M1.5", "timestamp": "2026-04-11T12:00:00Z" },
@@ -157,12 +176,13 @@ Returns the latest processed space weather state from the agent. Returns `null` 
 }
 ```
 
-### Agent Proxy
+---
 
-#### `GET /api/agent/brief`
+### `GET /api/agent/brief`
+
 Returns the latest LLM-generated mission brief. Checks local cache first, falls back to querying the agent.
 
-**Success response** (`200`):
+**Response** `200 OK`:
 ```json
 {
   "recommendation": "GO",
@@ -174,25 +194,31 @@ Returns the latest LLM-generated mission brief. Checks local cache first, falls 
 }
 ```
 
-**Error response** (`404`):
+**Response** `404 Not Found`:
 ```json
 { "error": "No brief available" }
 ```
 
-#### `POST /api/agent/brief`
-Forces on-demand LLM brief generation. Proxied to agent's `POST /brief/generate`. May take up to 30 seconds if waiting for Claude API response.
+---
 
-**Success response** (`200`): Same structure as `GET /api/agent/brief`.
+### `POST /api/agent/brief`
 
-**Error response** (`502`):
+Forces on-demand LLM brief generation. Proxied to agent's `POST /brief/generate`. May take up to 30 seconds.
+
+**Response** `200 OK`: Same structure as `GET /api/agent/brief`.
+
+**Response** `502 Bad Gateway`:
 ```json
 { "error": "Agent brief generation failed: <message>" }
 ```
 
-#### `GET /api/agent/health`
-Returns agent service health information. Proxied from agent's `/health` endpoint.
+---
 
-**Success response** (`200`):
+### `GET /api/agent/health`
+
+Returns agent service health. Proxied from agent's `/health`.
+
+**Response** `200 OK`:
 ```json
 {
   "status": "ok",
@@ -207,22 +233,29 @@ Returns agent service health information. Proxied from agent's `/health` endpoin
 }
 ```
 
-**Error response** (`502`):
+**Response** `502 Bad Gateway`:
 ```json
 { "error": "Agent unreachable: <message>" }
 ```
 
-### Internal Endpoint
+---
 
-#### `POST /internal/agent-push`
-**Internal only.** Receives the complete agent state payload after each evaluation cycle.
+### `POST /internal/agent-push`
 
-**Required header**: `x-internal-secret: <INTERNAL_SECRET from .env>`
+**Internal only.** Receives the complete agent state after each evaluation cycle.
+
+**Required header:** `x-internal-secret: <INTERNAL_SECRET from .env>`
 
 **Request body** (`AgentPushPayload`):
 ```json
 {
-  "riskState": { "score": 35, "level": "MODERATE", "breakdown": {}, "previousLevel": "LOW", "updatedAt": 1712841600000 },
+  "riskState": {
+    "score": 35,
+    "level": "MODERATE",
+    "breakdown": {},
+    "previousLevel": "LOW",
+    "updatedAt": 1712841600000
+  },
   "brief": null,
   "spaceWeather": {},
   "activeFlares": [],
@@ -232,12 +265,12 @@ Returns agent service health information. Proxied from agent's `/health` endpoin
 }
 ```
 
-**Success response** (`200`):
+**Response** `200 OK`:
 ```json
 { "received": true, "isAlert": false }
 ```
 
-**Error response** (`403`):
+**Response** `403 Forbidden`:
 ```json
 { "error": "Forbidden" }
 ```
@@ -246,15 +279,15 @@ Returns agent service health information. Proxied from agent's `/health` endpoin
 
 ## Agent Endpoints (`:3002`)
 
-These endpoints are primarily used internally by the gateway. They are also useful for debugging.
+These endpoints are primarily for internal use (gateway proxy) and debugging.
 
-#### `GET /health`
-Returns agent uptime, last poll timestamps, and cache statistics.
+### `GET /health`
+Agent uptime, last poll timestamps, and cache statistics.
 
-#### `GET /status`
-Returns the current `RiskState` from the risk engine.
+### `GET /status`
+Current `RiskState` from the risk engine.
 
-**Success response** (`200`):
+**Response** `200 OK`:
 ```json
 {
   "score": 35,
@@ -273,112 +306,121 @@ Returns the current `RiskState` from the risk engine.
 }
 ```
 
-#### `GET /brief`
-Returns the latest LLM-generated mission brief.
+### `GET /brief`
+Latest LLM-generated mission brief.
 
-**Error response** (`404`):
+**Response** `404 Not Found`:
 ```json
 { "error": "No brief generated yet" }
 ```
 
-#### `POST /brief/generate`
-Forces on-demand brief generation using Claude API (or deterministic fallback if no API key).
+### `POST /brief/generate`
+Forces on-demand brief generation using Claude API (or deterministic fallback).
 
-#### `GET /data/:source`
-Returns raw cached data for a specific source.
+### `GET /data/:source`
+Raw cached data for a specific source.
 
-**Valid sources**: `swpc-xray`, `swpc-kp`, `swpc-protons`, `swpc-wind`, `swpc-mag`, `donki-flares`, `donki-cme`, `neows`, `eonet`
+**Valid sources:** `swpc-xray`, `swpc-kp`, `swpc-protons`, `swpc-wind`, `swpc-mag`, `donki-flares`, `donki-cme`, `neows`, `eonet`
 
-**Error response** (`400`):
+**Response** `400 Bad Request`:
 ```json
 { "error": "Unknown source. Valid: swpc-xray, swpc-kp, swpc-protons, swpc-wind, swpc-mag, donki-flares, donki-cme, neows, eonet" }
 ```
 
-**Error response** (`404`):
+**Response** `404 Not Found`:
 ```json
 { "error": "No data cached for this source yet" }
 ```
 
-#### `GET /space-weather`
-Returns the processed `SpaceWeatherState` with classified values (X-ray class type, Kp numeric, etc.).
+### `GET /space-weather`
+Processed `SpaceWeatherState` with classified values (X-ray class type, Kp numeric, etc.).
 
 ---
 
 ## Socket.io Events
 
-### Client → Server
-No client-to-server events defined. The frontend is read-only.
+### Server -> Client (Gateway `:3001`)
 
-### Server → Client (Gateway `:3001`)
-
-| Event | Trigger | Payload |
-|-------|---------|---------|
-| `satellite-positions` | Every 10s + on connect | `SatPosition[]` — array of `{ id, name, lat, lng, alt }` |
+| Event | Trigger | Payload Type |
+|-------|---------|-------------|
+| `satellite-positions` | Every 10s + on connect | `SatPosition[]` — `{ id, name, lat, lng, alt }` |
 | `risk-update` | Every agent evaluation (~5 min) | `{ score, level, breakdown, timestamp }` |
 | `risk-alert` | Risk level changes | `{ level, score, brief, timestamp }` |
-| `space-weather` | On new SWPC data from agent | `SpaceWeatherState` object |
+| `space-weather` | On new SWPC data from agent | `SpaceWeatherState` |
+
+### Client -> Server
+No client-to-server events defined. The frontend is read-only.
 
 ---
 
 ## Data Models
 
 ### RiskState
+
 | Field | Type | Description |
 |-------|------|-------------|
-| `score` | number (0–100) | Composite risk score |
+| `score` | `number` (0-100) | Composite risk score |
 | `level` | `LOW` \| `MODERATE` \| `HIGH` \| `CRITICAL` | Risk classification |
 | `breakdown` | `RiskBreakdown` | Per-source score breakdown |
-| `previousLevel` | `RiskLevel` \| `null` | Previous risk level (for change detection) |
-| `updatedAt` | number | Unix timestamp (ms) |
+| `previousLevel` | `RiskLevel` \| `null` | Previous level (for change detection) |
+| `updatedAt` | `number` | Unix timestamp (ms) |
 
 ### RiskBreakdown
+
 | Field | Type | Description |
 |-------|------|-------------|
-| `solarFlare` | number | Points from X-ray flux classification |
-| `geomagneticStorm` | number | Points from Kp index |
-| `radiationStorm` | number | Points from proton flux |
-| `solarWind` | number | Points from solar wind speed |
-| `imfBz` | number | Points from IMF Bz southward component |
-| `neo` | number | Points from NEO proximity |
-| `compoundBonus` | number | Synergistic bonus from multi-factor combinations |
+| `solarFlare` | `number` | Points from X-ray flux classification |
+| `geomagneticStorm` | `number` | Points from Kp index |
+| `radiationStorm` | `number` | Points from proton flux |
+| `solarWind` | `number` | Points from solar wind speed |
+| `imfBz` | `number` | Points from IMF Bz southward component |
+| `neo` | `number` | Points from NEO proximity |
+| `compoundBonus` | `number` | Synergistic bonus from multi-factor combinations |
 
 ### MissionBrief
+
 | Field | Type | Description |
 |-------|------|-------------|
 | `recommendation` | `GO` \| `CAUTION` \| `NO-GO` | Mission recommendation |
-| `summary` | string | 1–2 sentence plain-language assessment |
+| `summary` | `string` | 1-2 sentence plain-language assessment |
 | `threats` | `Threat[]` | Identified threats with severity and time window |
 | `maneuver_windows` | `ManeuverWindow[]` | Recommended satellite maneuvers |
-| `confidence` | number (0–1) | Model confidence in the assessment |
-| `generatedAt` | number | Unix timestamp (ms) |
+| `confidence` | `number` (0-1) | Model confidence in the assessment |
+| `generatedAt` | `number` | Unix timestamp (ms) |
 
 ### SatPosition
+
 | Field | Type | Description |
 |-------|------|-------------|
-| `id` | number | NORAD catalog number |
-| `name` | string | Satellite name |
-| `lat` | number | Latitude (decimal degrees) |
-| `lng` | number | Longitude (decimal degrees) |
-| `alt` | number | Altitude (km) |
+| `id` | `number` | NORAD catalog number |
+| `name` | `string` | Satellite name |
+| `lat` | `number` | Latitude (decimal degrees) |
+| `lng` | `number` | Longitude (decimal degrees) |
+| `alt` | `number` | Altitude (km) |
 
 ### SpaceWeatherState
+
 | Field | Type | Description |
 |-------|------|-------------|
 | `xray` | `{ flux, classType, timestamp }` \| `null` | Latest X-ray flux reading |
 | `kp` | `{ value, timestamp }` \| `null` | Latest Kp index |
-| `protonFlux` | `{ flux, timestamp }` \| `null` | Latest ≥10 MeV proton flux |
+| `protonFlux` | `{ flux, timestamp }` \| `null` | Latest >= 10 MeV proton flux |
 | `solarWind` | `{ speed, density, timestamp }` \| `null` | Latest solar wind plasma |
 | `bz` | `{ value, timestamp }` \| `null` | Latest IMF Bz GSM component |
 
 ---
 
 ## Error Format
+
 All errors follow this shape:
 ```json
 { "error": "Human-readable description" }
 ```
 
 ## Rate Limiting
-- **Internal**: No rate limiting on gateway or agent endpoints (MVP)
-- **External APIs**: Rate limits are respected by the agent's cron-scheduled pollers (see `docs/GOTCHAS.md`)
-- **Post-MVP**: Consider adding `express-rate-limit` if exposing the gateway publicly
+
+| Context | Status |
+|---------|--------|
+| Internal endpoints | No rate limiting (MVP) |
+| External APIs | Respected by cron-scheduled pollers (see [`GOTCHAS.md`](GOTCHAS.md)) |
+| Post-MVP | Add `express-rate-limit` if exposing gateway publicly |

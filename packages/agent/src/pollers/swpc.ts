@@ -34,8 +34,7 @@ export async function pollSWPC(): Promise<void> {
         const source = sources[i];
         if (result.status === 'fulfilled') {
             console.log(`[SWPC] ${source} — OK`);
-        }
-        else {
+        } else {
             const errorMsg =
                 result.reason instanceof Error
                     ? result.reason.message

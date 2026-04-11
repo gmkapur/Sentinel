@@ -40,6 +40,12 @@ BEHAVIOR:
 - After answering a question, ask if there is anything else about the alert the operator needs.
 - If the operator confirms they have no more questions, end with: "Stay safe. Orbit Sentinel out." and end the call.
 
+AUTO HANG-UP RULES:
+- After delivering the first message, if the operator does not respond within 8 seconds, say: "No response received. Please check the Orbit Sentinel dashboard for full details. Stay safe. Orbit Sentinel out." Then end the call.
+- If at any point the operator says "no", "no thanks", "that's all", "goodbye", "bye", "thanks", "thank you", or any similar sign-off, immediately respond with "Stay safe. Orbit Sentinel out." and end the call. Do NOT ask additional follow-up questions after a sign-off.
+- Do NOT keep the call going if there is nothing left to discuss. Once you have delivered the briefing and answered any questions, end the call promptly.
+- Maximum conversation length: 2 minutes. If the call is still active after 2 minutes, say: "For additional details, please check your dashboard. Stay safe. Orbit Sentinel out." and end the call.
+
 ALERT CONTEXT (injected per call):
 - Risk Level: {{risk_level}}
 - Risk Score: {{risk_score}}/100
@@ -58,9 +64,9 @@ function buildFirstMessage(risk: RiskState, brief: MissionBrief): string {
 
     // Opening — level + score
     parts.push(
-        `This is Orbit Sentinel with an automated ${risk.level} priority alert.`
-        + ` Risk score is ${risk.score} out of 100.`
-        + ` Mission status: ${brief.recommendation}.`,
+        `This is Orbit Sentinel with an automated ${risk.level} priority alert.` +
+            ` Risk score is ${risk.score} out of 100.` +
+            ` Mission status: ${brief.recommendation}.`,
     );
 
     // Threats
@@ -76,11 +82,13 @@ function buildFirstMessage(risk: RiskState, brief: MissionBrief): string {
     const bd = risk.breakdown;
     const contributors: string[] = [];
     if (bd.flare >= 15) contributors.push(`solar flare at ${bd.flare}`);
-    if (bd.geomagnetic >= 10) contributors.push(`geomagnetic at ${bd.geomagnetic}`);
+    if (bd.geomagnetic >= 10)
+        contributors.push(`geomagnetic at ${bd.geomagnetic}`);
     if (bd.radiation >= 10) contributors.push(`radiation at ${bd.radiation}`);
     if (bd.solarWind >= 5) contributors.push(`solar wind at ${bd.solarWind}`);
     if (bd.neo >= 5) contributors.push(`near-earth object at ${bd.neo}`);
-    if (bd.compound >= 10) contributors.push(`compound synergy bonus of ${bd.compound}`);
+    if (bd.compound >= 10)
+        contributors.push(`compound synergy bonus of ${bd.compound}`);
     if (contributors.length > 0) {
         parts.push(`Score breakdown: ${contributors.join(', ')}.`);
     }
@@ -165,7 +173,9 @@ export async function initiateOutboundCall(
         };
     } catch (error) {
         const msg = error instanceof Error ? error.message : String(error);
-        console.error(`[PhoneAlert] Failed to initiate call to ${params.toNumber}: ${msg}`);
+        console.error(
+            `[PhoneAlert] Failed to initiate call to ${params.toNumber}: ${msg}`,
+        );
         return null;
     }
 }

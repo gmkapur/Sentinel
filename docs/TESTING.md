@@ -1,9 +1,17 @@
 # Testing Strategy
 
 ## Philosophy
-- MVP ships without tests — testing is explicitly deferred to keep the 6-hour sprint focused on functionality
-- When tests are added post-MVP: test behavior, not implementation. Focus on the risk engine scoring logic and poller data parsing as highest-value targets.
-- **Coverage target**: No strict target for MVP. Post-MVP: critical paths must be covered (risk engine, pollers, API routes).
+
+MVP ships without tests — testing is explicitly deferred to keep the 6-hour sprint focused on core functionality. When tests are added post-MVP, they follow these priorities:
+
+1. **Risk engine scoring logic** — Highest value. Incorrect risk scores have the most user impact.
+2. **Poller data parsing** — Validates that real API responses are correctly transformed.
+3. **API route contracts** — Ensures frontend integration works.
+4. **Socket.io event flow** — Validates real-time update pipeline.
+
+> **Principle:** Test behavior, not implementation. Test the risk engine's output for a given input, not its internal data structures.
+
+---
 
 ## Test Commands
 
@@ -11,18 +19,20 @@
 # Run all tests
 npm test
 
-# Run a single test file
+# Run a specific test file
 npx vitest run packages/agent/src/riskEngine.test.ts
 
 # Run tests matching a pattern
 npx vitest run --grep "risk"
 
-# Run tests in watch mode
+# Watch mode (re-run on file changes)
 npx vitest --watch
 
-# Run tests with coverage report
+# Coverage report
 npx vitest run --coverage
 ```
+
+---
 
 ## Test Structure
 
@@ -40,67 +50,104 @@ tests/
 │   │       └── eonet.test.ts        # EONET response parsing
 │   └── gateway/
 │       ├── satellites.test.ts       # SGP4 propagation + TLE parsing
-│       └── agentState.test.ts       # Agent state store + alert history
+│       └── agentState.test.ts       # State store + alert history
+│
 ├── integration/
 │   ├── agent/
 │   │   └── router.test.ts          # Agent API routes
 │   ├── gateway/
 │   │   ├── routes.test.ts          # Gateway REST API
 │   │   └── websocket.test.ts       # Socket.io event flow
-│   └── push.test.ts               # Agent → gateway push flow
+│   └── push.test.ts               # Agent -> gateway push flow
+│
 └── fixtures/
     ├── swpc-xray.json              # Sample SWPC X-ray response
-    ├── swpc-kp.json                # Sample SWPC Kp response
-    ├── swpc-protons.json           # Sample SWPC proton flux response
-    ├── swpc-wind.json              # Sample SWPC solar wind response
-    ├── swpc-mag.json               # Sample SWPC magnetic field response
-    ├── donki-flare.json            # Sample DONKI solar flare response
+    ├── swpc-kp.json                # Sample Kp response
+    ├── swpc-protons.json           # Sample proton flux response
+    ├── swpc-wind.json              # Sample solar wind response
+    ├── swpc-mag.json               # Sample magnetic field response
+    ├── donki-flare.json            # Sample DONKI flare response
     ├── donki-cme.json              # Sample DONKI CME response
     ├── neows-feed.json             # Sample NeoWs feed response
     ├── eonet-events.json           # Sample EONET events response
     └── celestrak-3le.txt           # Sample CelesTrak 3LE data
 ```
 
+---
+
 ## Test Categories
 
-### Unit Tests (highest priority post-MVP)
-- **Location**: `tests/unit/`
-- **Naming**: `[module].test.ts`
-- **Mocking strategy**: Mock axios responses with fixture JSON files. Never make real API calls in unit tests.
-- **When to write**: Risk engine scoring logic (most critical), poller response parsing, data cache behavior, LLM brief generation + fallback
+### Unit Tests (Highest Priority)
+
+**Location:** `tests/unit/`
+**Mocking:** Mock axios responses with fixture JSON files. Never make real API calls in unit tests.
+
+| Module | What to Test | Priority |
+|--------|-------------|----------|
+| `riskEngine.ts` | Score calculation for each risk level; compound synergy rules fire correctly; score capping at 100 | Critical |
+| `pollers/*.ts` | Correct parsing of real API response formats; trend computation; cache write calls | High |
+| `llmBrief.ts` | Brief generation with mock Claude response; deterministic fallback path; trigger condition logic | High |
+| `dataCache.ts` | TTL behavior; source-specific TTL enforcement; cache miss handling | Medium |
+| `satellites.ts` | TLE parsing; SGP4 propagation produces valid lat/lng/alt | Medium |
+| `agentState.ts` | Alert history cap (100 records); state overwrite on push | Medium |
 
 ### Integration Tests
-- **Location**: `tests/integration/`
-- **External services**: Use fixture data injected into node-cache, not live API calls
-- **When to write**: API route responses, Socket.io event broadcast on risk level changes, agent-to-gateway push flow
 
-### End-to-End Tests
-- **Location**: Not planned for MVP
-- **Framework**: Playwright (when added)
-- **When to write**: Post-MVP for critical user journeys (page load → globe render → alert display)
+**Location:** `tests/integration/`
+**Strategy:** Use fixture data injected into node-cache, not live API calls.
+
+| Test | What It Validates |
+|------|------------------|
+| Agent router | All agent API routes return correct shapes |
+| Gateway routes | REST endpoints return expected data models |
+| WebSocket flow | Risk level change triggers Socket.io broadcast |
+| Agent push | POST to /internal/agent-push updates gateway state and triggers alerts |
+
+### End-to-End Tests (Post-MVP)
+
+**Framework:** Playwright
+**Scope:** Critical user journeys — page load, globe render, alert display, brief panel
+
+---
 
 ## Test Data & Fixtures
-- **Fixtures**: Store sample API responses in `tests/fixtures/` — capture real responses and save as JSON
-- **Risk scenarios**: Create fixtures for each risk level (LOW, MODERATE, HIGH, CRITICAL) with appropriate data combinations
-- **Cleanup**: No database cleanup needed — tests use in-memory cache
 
-## What Must Pass Before Merge
+- **Source:** Capture real API responses and save as JSON in `tests/fixtures/`
+- **Risk scenarios:** Create fixture sets for each level:
+  - `LOW` — Nominal conditions (C-class flare, Kp 2)
+  - `MODERATE` — Elevated (M2 flare, Kp 4, solar wind 520 km/s)
+  - `HIGH` — Significant (M6 flare, Kp 6, compound synergy triggers)
+  - `CRITICAL` — Severe compound (X5 flare, Kp 9, proton flux 500 pfu)
+- **Cleanup:** No database cleanup needed — tests use in-memory cache
+
+---
+
+## Merge Checklist
+
 - [ ] All unit tests pass
 - [ ] Linting passes with zero warnings
 - [ ] Build completes without errors (`npm run build` in each package)
-- [ ] Risk engine produces correct scores for fixture-based scenarios
+- [ ] Risk engine produces correct scores for all fixture scenarios
 
-## Writing a New Test — Checklist
+---
+
+## Writing a New Test
+
 1. Create test file in the appropriate `tests/` subdirectory
-2. Import the module under test and relevant fixtures from `tests/fixtures/`
+2. Import the module under test and relevant fixtures
 3. Use `describe` blocks for the module, `it` blocks for behaviors
-4. Test the happy path first, then error cases (API down / stale cache), then edge cases
-5. For risk engine tests: verify both the score value and the risk level classification
-6. For poller tests: verify correct parsing, trend computation, and cache writes
-7. Run the test in isolation before pushing: `npx vitest run path/to/test.ts`
+4. Test happy path first, then error cases, then edge cases
+5. For risk engine: verify both the score value AND the level classification
+6. For pollers: verify parsing, trend computation, and cache writes
+7. Run in isolation before pushing: `npx vitest run path/to/test.ts`
 
-## Known Test Quirks
-- Risk engine tests should set fixed timestamps to avoid flaky results from time-dependent logic
-- Socket.io tests require a running server instance — use `beforeAll` to spin up a test server on a random port
-- Agent push tests need both agent and gateway mock servers
-- LLM brief tests should mock the Claude API response and also test the deterministic fallback path
+---
+
+## Known Quirks
+
+| Quirk | Workaround |
+|-------|-----------|
+| Risk engine has time-dependent logic | Set fixed timestamps in test setup to avoid flaky results |
+| Socket.io tests need a running server | Use `beforeAll` to spin up a test server on a random port |
+| Agent push tests need both services | Mock both agent and gateway servers |
+| LLM tests must cover fallback path | Mock Claude API response AND test the no-API-key deterministic path |

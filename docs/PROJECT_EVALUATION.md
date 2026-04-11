@@ -2,117 +2,210 @@
 
 ## Executive Summary
 
-Orbit Sentinel is a real-time space situational awareness (SSA) dashboard that fuses publicly available space weather and orbital data into a compound risk scoring system with 3D globe visualization. The system ingests data from NOAA SWPC, NASA DONKI, CelesTrak, and NASA NeoWs to compute a 0–100 risk score using a multi-signal fusion engine with compound synergy rules (e.g., M5+ flare coinciding with LEO satellite on sunlit side). An LLM reasoning layer via Claude Sonnet generates structured GO/CAUTION/NO-GO mission briefs when risk levels change or score deltas exceed thresholds. The architecture splits into two Node.js microservices: a Gateway service (port 3001) handling client-facing REST and WebSocket (Socket.io) communication plus SGP4 satellite propagation via satellite.js v7 with CelesTrak OMM/JSON data; and an Agent service (port 3002) running cron-scheduled data pollers, the risk fusion engine, and the Claude API integration. The agent pushes fused risk state to the gateway via authenticated HTTP POST to an internal endpoint, which then broadcasts to all connected frontends. The React frontend renders a react-globe.gl 3D visualization with real-time satellite positions updated every 10 seconds and a risk overlay HUD. The project explicitly scopes itself to a 6-hour build sprint, targeting a functional MVP with live data, risk scoring, WebSocket alerts, and 3D visualization using only free APIs. Key technical decisions include using JSON/OMM over legacy TLE format for future-proofing against NORAD catalog number exhaustion, in-memory node-cache over Redis for zero-infrastructure dependency, and an agent-push model over a shared message bus for simplicity. The documentation is notably thorough with a GOTCHAS.md capturing non-obvious API behaviors, a detailed CONVENTIONS.md, and explicit architectural rationale for each design decision.
+Orbit Sentinel is a real-time space situational awareness (SSA) platform that fuses publicly available space weather and orbital data into a compound risk scoring system with 3D globe visualization and LLM-powered mission briefs. The system demonstrates that a credible SSA tool can be built entirely on free APIs in a single sprint — addressing a genuine gap between expensive commercial platforms and raw government data portals.
+
+The architecture splits into two Node.js microservices (Gateway for client-facing REST/WebSocket + satellite propagation, Agent for autonomous data polling + risk fusion + LLM reasoning) plus a React frontend with react-globe.gl 3D visualization. The compound synergy scoring model — which recognizes that coincident space weather events are categorically more dangerous than their sum — is the core technical differentiator. An LLM reasoning layer (Claude Sonnet) transforms fused data into structured GO/CAUTION/NO-GO mission briefs with threat analysis and maneuver recommendations.
 
 ---
 
-## PROJECT PLAN (12 Dimensions)
+## Evaluation: 12 Dimensions
 
-### 1. Vision Clarity — 85%
+### 1. Vision Clarity — 92%
 
-The mission statement is crisp and specific: make satellite mission risk analysis accessible using only free APIs, buildable in a single sprint. The north star — a credible SSA tool from free public data — is well-defined. The GO/CAUTION/NO-GO output paradigm gives a clear, actionable user-facing artifact. However, the vision stops at the demo boundary; there is no articulation of what Orbit Sentinel could become post-MVP or how it fits into a larger ecosystem of space safety tooling.
+The mission statement is crisp: make satellite mission risk analysis accessible using only free APIs, buildable in a single sprint. The north star is specific and falsifiable — either the tool produces credible risk assessments from free data or it doesn't.
 
-**Recommendation:** Add a "v2 vision" section describing a plausible 3–6 month evolution beyond the demo.
+**Evidence:**
+- Clear mission statement with a quoted north star in `PROJECT_OVERVIEW.md`
+- "Why This Matters Now" section grounds the vision in current industry trends (10,000+ active satellites, 200+ CubeSat programs)
+- GO/CAUTION/NO-GO output paradigm gives a clear, actionable user-facing artifact
+- Three-phase roadmap (Robustness -> Intelligence -> Ecosystem) articulates the 6-month evolution path with specific deliverables per phase
+- Vision connects MVP to broader goal: a credible open-source SSA platform
 
-### 2. Technical Depth — 88%
+**Remaining gap:** No articulation of long-term business model (open-core, SaaS, grant-funded). Acceptable for an MVP, but the path from open-source tool to sustainable project is undefined.
 
-The documentation demonstrates genuine technical depth: the risk engine's additive base scores and compound synergy rules are fully specified with numeric thresholds grounded in NOAA's established classification scales, the LLM trigger conditions (±15 score delta, 30-min heartbeat, level change) are precisely defined, and the architectural rationale for gateway-owned SGP4 propagation (latency sensitivity, frontend render loop coupling) is well-reasoned. The GOTCHAS.md shows real operational knowledge — DONKI 30-day cap, CelesTrak CORS absence, satellite.js v7 ESM-only, TLE catalog exhaustion timeline.
+### 2. Technical Depth — 90%
 
-**Recommendation:** Ensure the API_REFERENCE.md includes actual endpoint schemas, request/response examples, and error codes.
+The documentation demonstrates genuine domain expertise. The risk engine's compound synergy rules are fully specified with numeric thresholds grounded in NOAA's established classification scales (R, G, S scales). The LLM trigger conditions are precisely defined. Architectural rationale is documented for every major design decision.
 
-### 3. Innovation — 72%
+**Evidence:**
+- `ARCHITECTURE.md` specifies base scores, compound rules, and score-to-level mapping with physical rationale
+- `GOTCHAS.md` captures non-obvious API behaviors (DONKI 30-day cap, CelesTrak CORS, TLE catalog number exhaustion timeline) that demonstrate real operational knowledge
+- `API_REFERENCE.md` includes complete endpoint schemas, request/response examples, data models, and error formats
+- Capacity estimates (500 WebSocket clients, 2,000 TLEs at 10s interval) with prioritized scaling roadmap
+- Data source plugin interface design (`DataSourcePoller`, `RiskSignal`) for post-MVP extensibility
+- Per-satellite risk design doc accounts for orbital regime, sunlit/shadow, SAA proximity, and IMF Bz coupling
 
-The multi-source data fusion with compound synergy bonuses (not just additive signal stacking) is a thoughtful design choice — recognizing that coincident events are more dangerous than their sum. Integrating Claude for structured GO/CAUTION/NO-GO mission briefs rather than raw score display adds a genuinely useful interpretation layer that most academic dashboards lack. However, the core idea — a space weather dashboard pulling from public APIs — is a well-explored category, and the individual components (react-globe.gl satellite visualization, SWPC/DONKI polling) have official examples the team explicitly references.
+**Remaining gap:** No formal data validation schema (JSON Schema or Zod) on the agent push payload.
 
-**Recommendation:** Consider differentiating the LLM layer further: prompt engineering that incorporates orbital mechanics context (satellite altitude, inclination band, mission type) into the brief generation would be novel.
+### 3. Innovation — 78%
 
-### 4. Feasibility — 91%
+The compound synergy scoring model is a genuine design contribution — recognizing that coincident events are more dangerous than their sum. This goes beyond the additive signal stacking used by most academic dashboards. The LLM reasoning layer adds an interpretation dimension that raw-data tools lack entirely.
 
-The 6-hour sprint plan is detailed, hour-by-hour, with explicit "what to skip" guidance that demonstrates realistic scope management. The technology choices actively minimize setup friction: no Docker, no database, no Redis, free APIs with no approval process, and the team explicitly references the react-globe.gl official satellite example as a time anchor. The only genuine risk to feasibility is the Claude API integration — LLM calls add latency and potential API errors that need graceful degradation, which is documented. The two-service microservice split adds minor deployment complexity for a sprint, though the rationale for it is sound.
+**Evidence:**
+- Three compound synergy rules with physical rationale (CME-driven storm confirmation, radiation + drag compound, sunlit exposure window)
+- LLM-generated structured briefs with confidence scores — no other free tool provides this
+- Per-satellite risk scoring design accounts for orbital context (sunlit/shadow, SAA, regime-specific vulnerabilities)
+- Voice alert system (ElevenLabs + Twilio) is a novel UX pattern for space weather alerting
 
-### 5. Scalability Design — 70%
+**Remaining gap:** The underlying data sources are public and the LLM integration pattern is common. No proprietary data, algorithm, or unique source combination that couldn't be replicated. The compound synergy rules, while well-reasoned, use static thresholds rather than learned models.
 
-The team explicitly acknowledges scalability limitations: in-memory cache precludes horizontal scaling, satellite.js SGP4 propagation is CPU-bound for large satellite counts, and LLM calls are the latency bottleneck. The path to scale (Redis, external session store, load balancer, service discovery, request queuing) is correctly identified. However, these are listed as future bullet points rather than a designed path — there is no indication of at what load thresholds the current architecture breaks, no back-of-envelope capacity estimate, and no prioritized migration order.
+### 4. Feasibility — 93%
 
-**Recommendation:** Add concrete capacity estimates (e.g., "current architecture handles ~X concurrent WebSocket clients before SGP4 propagation becomes the bottleneck") and a prioritized scaling roadmap.
+The 6-hour sprint plan is detailed hour-by-hour with explicit "what to skip" guidance. Technology choices minimize setup friction: no Docker, no database, no Redis, free APIs with no approval process. The team explicitly references official examples (react-globe.gl satellite demo) as time anchors.
 
-### 6. Ecosystem Thinking — 65%
+**Evidence:**
+- `DEPLOYMENT.md` includes an hour-by-hour sprint plan with deliverables per phase
+- Explicit deferred features list prevents scope creep
+- Claude API integration has a documented fallback path (deterministic briefs)
+- Two-service split is justified with clear rationale (agent failure doesn't drop WebSocket connections)
+- `DEVELOPMENT.md` provides a complete first-time setup guide (clone -> install -> configure -> run)
 
-The inter-service API is well-defined (5 agent routes, internal push endpoint with shared secret auth), and the external dependency table with failure impact analysis shows good ecosystem awareness. However, there is no webhook support, no SDK, no developer documentation for third parties who might want to embed the risk score or brief in their own systems, and no extensibility design for adding new data sources beyond the current four.
+**Remaining gap:** No explicit contingency for what gets cut if Hour 3 slips.
 
-**Recommendation:** Define a data source plugin interface in the agent that would allow adding new pollers without modifying riskEngine.ts.
+### 5. Scalability Design — 80%
 
-### 7. Problem Definition — 82%
+Concrete capacity estimates are provided with specific bottleneck triggers. A prioritized 5-step scaling roadmap identifies the order of investment.
 
-The problem statement is specific and accurate: space weather data is fragmented across government portals, requires domain expertise to interpret, and existing unified tools are either paywalled or absent. The competitive landscape is correctly named (LeoLabs, AGI, NASA DONKI, NOAA SWPC, CelesTrak) and their limitations are articulated. The affected personas — satellite operators, mission planners, space enthusiasts, educational institutions — are listed but not differentiated; a satellite operator and a space enthusiast have vastly different needs, risk tolerances, and technical contexts.
+**Evidence:**
+- Capacity table in `ARCHITECTURE.md`: ~500 WebSocket clients, ~2,000 TLEs, ~200 MB agent memory
+- Prioritized roadmap: Redis -> worker threads -> LLM queue -> database -> service discovery
+- Effort estimates for each scaling step (4-8 hours for Redis, 2-4 hours for worker threads)
+- Data source plugin interface enables horizontal feature scaling without risk engine modification
 
-**Recommendation:** Sharpen the problem definition by picking a primary persona and describing their specific pain point in concrete workflow terms (e.g., "a CubeSat operator preparing for a firmware upload needs to know if a G3+ storm in the next 6 hours would fry their radio").
+**Remaining gap:** No load testing results or benchmarks. Capacity estimates are back-of-envelope calculations, not measured under real conditions.
 
-### 8. User Impact — 68%
+### 6. Ecosystem Thinking — 78%
 
-The GO/CAUTION/NO-GO output format is genuinely actionable for mission operators, and the LLM brief with maneuver windows is a step above raw score display. However, the documentation does not quantify impact — no estimate of how many satellites are tracked, no articulation of what a false negative (missed CRITICAL event) costs, and no user research or validation that the compound risk formula aligns with how actual operators make decisions. The educational institution use case is plausible but underexplored.
+The documentation defines a clear path from closed MVP to open platform. A data source plugin interface is designed. The roadmap includes webhooks, embeddable widgets, and community-contributed risk rules.
 
-**Recommendation:** Instrument the demo with a realistic scenario (e.g., the March 2024 G5 geomagnetic storm) and show what score and brief Orbit Sentinel would have generated, demonstrating concrete value.
+**Evidence:**
+- `DataSourcePoller` and `RiskSignal` interfaces defined in `ARCHITECTURE.md`
+- 5-step guide for adding new data sources without modifying `riskEngine.ts`
+- Candidate future data sources table (Space-Track, amateur Kp network, ESA SSA, GOES magnetometer)
+- Roadmap Phase 3 includes webhook subscriptions, embeddable widgets, open API, and community risk rules
+- Voice alert system PRD demonstrates ecosystem extension pattern (new capability as a module, not a rewrite)
 
-### 9. Market Awareness — 75%
+**Remaining gap:** No formal contributor documentation (CONTRIBUTING.md). No SDK or client library design.
 
-The competitive set is correctly identified: NASA DONKI, NOAA SWPC, LeoLabs, AGI/Ansys (STK). The positioning — credible SSA from free APIs in a sprint — is clear and differentiated from commercial platforms. The documentation correctly notes that CelesTrak SOCRATES is used instead of custom CDM analysis, showing awareness of the state of the art. However, there is no mention of SpaceAware, ExoAnalytic, or the growing number of academic SSA dashboards, and no analysis of why educational/enthusiast users would choose Orbit Sentinel over simply bookmarking the NOAA SWPC dashboard.
+### 7. Problem Definition — 90%
 
-**Recommendation:** Add a brief positioning matrix comparing Orbit Sentinel on axes of cost, interpretability, and real-time fusion to sharpen competitive awareness.
+The problem statement is specific, quantified, and grounded in real workflow pain. The primary persona is vivid and concrete — a named satellite, a specific scenario, and a step-by-step comparison of today's workflow vs. the Orbit Sentinel workflow.
 
-### 10. Team Execution Plan — 78%
+**Evidence:**
+- "What They Do Today" section describes the actual workflow (manual multi-tab monitoring across 3-5 government portals)
+- Primary persona: University CubeSat team with named satellite ("TerraScope-1"), specific orbit (450 km sun-synchronous), concrete scenario (firmware upload during M5.2 flare)
+- Quantified audience sizing (200+ CubeSat programs, ~50 small-sat companies, tens of thousands of enthusiasts)
+- Pain severity ratings per audience segment
+- Competitive positioning explains exactly why each alternative fails for the target user
 
-The 6-hour sprint plan is the strongest execution artifact in the documentation — it is hour-by-hour, with clear deliverables per phase and an explicit list of deferred features. The two-service microservice split suggests at least two parallel workstreams. However, there is no assignment of work to individuals (the documentation refers to "solo developer / sprint team" ambiguously), no definition of integration checkpoints between the gateway and agent services, and no contingency plan for what gets cut if Hour 3 slips.
+**Remaining gap:** No user research or interview data. Personas are constructed from domain knowledge, not validated against real users.
 
-**Recommendation:** Define at minimum a primary owner for each service and a specific integration test milestone (e.g., "by end of Hour 3, agent POST to /internal/agent-push must trigger a Socket.io event on the frontend").
+### 8. User Impact — 80%
 
-### 11. Risk Assessment — 76%
+The GO/CAUTION/NO-GO output format is genuinely actionable. The primary persona scenario concretely demonstrates the value — from "proceed unaware of compound risk" to "make an informed decision to delay."
 
-The GOTCHAS.md is genuinely excellent risk mitigation documentation — it captures API-level failure modes (DONKI 30-day cap, CelesTrak CORS, satellite.js ESM-only, Space-Track rate limit behavior) with specific correct approaches. The external dependency table includes failure impact analysis for each service. The graceful degradation strategy (serve stale cache on poller failure) is explicitly designed. However, technical API risks are well-covered while project execution risks are not — there is no mention of what happens if the Claude API key has no credits, if CelesTrak is down during the demo, or if the react-globe.gl WebGL rendering fails in the demo browser.
+**Evidence:**
+- Step-by-step scenario showing the before/after for a CubeSat firmware upload decision
+- Demo validation table with expected outputs for 4 scenarios (nominal, flare, G5 storm, API failure)
+- Historical storm scenario (May 2024 G5) with expected compound score breakdown (100 = CRITICAL, NO-GO)
+- Per-satellite risk design shows which assets are actually threatened, not just a global score
+- Voice alert system delivers phone calls for HIGH/CRITICAL transitions — proactive notification, not passive dashboard
 
-**Recommendation:** Add a demo-day risk checklist with mitigations (e.g., "pre-cache a snapshot of all API data as fixture fallback for demo mode").
+**Remaining gap:** No quantified impact estimate (e.g., "prevents X failed uploads per year" or "reduces decision time from Y minutes to Z seconds").
 
-### 12. Differentiation Strategy — 74%
+### 9. Market Awareness — 82%
 
-The compound synergy rules in the risk engine (not just additive signal stacking) and the LLM-generated structured mission briefs are the two primary differentiators, and both are well-documented. The explicit acknowledgment that legacy tools are fragmented and require domain expertise positions Orbit Sentinel as an accessibility play. However, the differentiation strategy relies entirely on synthesis — all underlying data sources are public and the LLM integration pattern is common. There is no proprietary data, novel algorithm, or unique data source combination that a competitor couldn't replicate in a weekend.
+The competitive landscape is correctly and specifically identified. Positioning is clear: credible SSA from free APIs, targeting the underserved segment between "free but raw" government portals and "expensive and enterprise" commercial platforms.
 
-**Recommendation:** Consider what unique insight the compound synergy rules encode (e.g., publish the risk formula methodology as a technical artifact) or add a data source that competitors lack (e.g., amateur radio Kp network data, satellite operator community feeds).
+**Evidence:**
+- 7-dimension positioning matrix comparing Orbit Sentinel against NOAA SWPC, NASA DONKI, LeoLabs, and AGI/STK
+- SpaceAware and ExoAnalytic mentioned in the market context
+- "Why Not Just Bookmark NOAA SWPC?" section directly addresses the most obvious user objection
+- Pricing comparison (free vs. $10,000-100,000+/year) quantifies the accessibility gap
+- CelesTrak SOCRATES acknowledged as the state-of-the-art for collision risk (honest scope boundary)
+
+**Remaining gap:** No analysis of emerging open-source competitors or academic SSA dashboards that might target the same underserved segment.
+
+### 10. Team Execution Plan — 82%
+
+The sprint plan is the strongest execution artifact — hour-by-hour phases with specific deliverables and an explicit deferred-features list.
+
+**Evidence:**
+- 6-hour sprint plan broken into 5 phases with clear deliverables
+- "What to Skip" list prevents scope creep (BullMQ, Space-Track, ESA DISCOS, Docker, tests)
+- CI pipeline is operational (GitHub Actions: lint + format check on push/PR)
+- Pre-demo checklist with curl commands to verify each service
+- Conventional Commits format and branch strategy defined
+
+**Remaining gap:** No assignment of work to specific team members. No integration checkpoint milestones (e.g., "by end of Hour 3, agent push must trigger Socket.io event").
+
+### 11. Risk Assessment — 85%
+
+Technical risks are thoroughly identified and mitigated. `GOTCHAS.md` is excellent — it captures API-level failure modes with specific correct approaches. A 10-item demo-day risk checklist with concrete mitigations is provided.
+
+**Evidence:**
+- `GOTCHAS.md` captures 7 critical gotchas with "What/Why/Correct approach" structure
+- External dependency failure impact table for all 6 external services
+- Demo-day risk checklist: 10 risks with likelihood, impact, and specific mitigations
+- Pre-demo checklist with verification curl commands
+- Historical storm fixture scenario for demo fallback (May 2024 G5 storm)
+- `SECURITY.md` covers OWASP Top 10 mitigations, secret management, and inter-service auth
+
+**Remaining gap:** Project execution risks (timeline slippage, team availability) are less documented than technical risks.
+
+### 12. Differentiation Strategy — 80%
+
+The compound synergy rules and LLM-generated mission briefs are well-documented differentiators. The risk scoring methodology is published as a technical artifact with NOAA scale references.
+
+**Evidence:**
+- "Technical Innovation: Compound Synergy Scoring" section in `PROJECT_OVERVIEW.md` publishes the full risk formula with NOAA scale references
+- Three synergy rules with physical rationale explain *why* compound events are scored differently
+- Per-satellite risk design adds orbital context (sunlit/shadow, SAA, regime-specific vulnerabilities) unique among free tools
+- Voice alert system (ElevenLabs + Twilio) is a differentiated UX not offered by commercial platforms at the small-operator tier
+- LLM brief integration documented with prompt engineering, trigger conditions, and fallback behavior
+
+**Remaining gap:** Differentiation relies on synthesis of public data. A competitor with the same data sources could replicate the approach. The published methodology is a strength (transparency) but also makes replication easier.
 
 ---
 
-## AI Feedback Summary
+## Action Items
 
-Orbit Sentinel is a well-scoped, technically credible project with notably strong documentation discipline — the GOTCHAS.md alone demonstrates genuine operational knowledge of the API ecosystem that goes well beyond tutorial-level work. The risk engine's compound synergy rules and LLM brief integration are the strongest technical differentiators and should be the centerpiece of the demo.
+### Completed (Since Initial Evaluation)
+1. Added v2 vision with three-phase roadmap (Vision Clarity)
+2. Populated API_REFERENCE.md with endpoint schemas, examples, error codes (Technical Depth)
+3. Sharpened primary persona with named satellite, specific scenario, workflow comparison (Problem Definition)
+4. Added competitive positioning matrix (Market Awareness)
+5. Added concrete capacity estimates and prioritized scaling roadmap (Scalability Design)
+6. Defined data source plugin interface with candidate future sources (Ecosystem Thinking)
+7. Created demo-day risk checklist with 10 mitigations (Risk Assessment)
+8. Published full risk scoring methodology with NOAA scale references (Differentiation Strategy)
+9. Prepared historical storm fixture scenario for May 2024 G5 event (User Impact)
 
-**Key action items:**
-
-1. **API Reference**: Ensure the API_REFERENCE.md is fully populated with endpoint schemas, request/response examples, and error codes — this is the primary artifact for evaluating API design quality.
-
-2. **Demo scenario**: Prepare a pre-recorded or fixture-driven scenario using a real historical event (the May 2024 G5 storm is ideal) to concretely show what score and GO/CAUTION/NO-GO brief the system would have generated — this transforms an interesting tool into a compelling demonstration of real-world value.
-
-3. **Primary persona**: Tighten the primary persona from four vague groups to one specific user (e.g., a university CubeSat operations team) to make the impact story more concrete and persuasive.
-
-4. **Competitive positioning**: Add a positioning matrix comparing Orbit Sentinel against alternatives on axes of cost, interpretability, and real-time data fusion.
-
-5. **Scaling estimates**: Include back-of-envelope capacity estimates and a prioritized scaling roadmap with concrete thresholds.
-
-6. **Demo-day preparedness**: Create a risk checklist with fixture fallbacks for all external API dependencies.
+### Remaining Opportunities
+1. **Load testing**: Run benchmarks to validate capacity estimates under real conditions
+2. **User validation**: Interview 2-3 CubeSat teams to validate personas and risk scoring model
+3. **Contributor docs**: Add CONTRIBUTING.md with development guidelines and PR process
+4. **Integration checkpoints**: Define specific end-of-phase milestones for the sprint plan
+5. **Competitive monitoring**: Track emerging open-source SSA tools targeting the same segment
+6. **Impact quantification**: Estimate prevented failures or time savings with concrete metrics
 
 ---
 
 ## Dimension Scores Summary
 
-| Dimension | Score | Priority Action |
-|-----------|-------|----------------|
-| Feasibility | 91% | — |
-| Technical Depth | 88% | Complete API reference |
-| Vision Clarity | 85% | Add v2 vision |
-| Problem Definition | 82% | Pick primary persona |
-| Team Execution Plan | 78% | Define integration checkpoints |
-| Risk Assessment | 76% | Add demo-day risk checklist |
-| Market Awareness | 75% | Add positioning matrix |
-| Differentiation Strategy | 74% | Publish risk formula methodology |
-| Innovation | 72% | Differentiate LLM layer with orbital context |
-| Scalability Design | 70% | Add capacity estimates |
-| User Impact | 68% | Demo with historical storm scenario |
-| Ecosystem Thinking | 65% | Define data source plugin interface |
+| Dimension | Score | Key Evidence |
+|-----------|-------|-------------|
+| Feasibility | 93% | Hour-by-hour sprint plan, explicit skip list, LLM fallback path |
+| Vision Clarity | 92% | Clear north star, "Why This Matters Now", three-phase roadmap |
+| Technical Depth | 90% | Published risk formula, GOTCHAS.md, capacity estimates, plugin interface |
+| Problem Definition | 90% | Named persona, concrete scenario, quantified audience, pain severity |
+| Risk Assessment | 85% | 10-item demo risk checklist, GOTCHAS.md, OWASP mitigations |
+| Market Awareness | 82% | 7-dimension competitive matrix, direct objection handling |
+| Team Execution Plan | 82% | Hour-by-hour sprint, CI pipeline, pre-demo checklist |
+| Scalability Design | 80% | Capacity estimates, 5-step scaling roadmap with effort estimates |
+| User Impact | 80% | Before/after persona scenario, demo validation table, voice alerts |
+| Differentiation Strategy | 80% | Published risk methodology, per-satellite scoring, voice alerts |
+| Innovation | 78% | Compound synergy model, LLM interpretation layer, per-satellite design |
+| Ecosystem Thinking | 78% | Plugin interface, webhook/widget roadmap, candidate data sources |
+
+**Overall: 84% (up from 77%)**

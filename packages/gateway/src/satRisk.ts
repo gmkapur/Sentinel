@@ -169,28 +169,28 @@ export function scoreRadiation(
     let threat = '';
 
     switch (regime) {
-    case 'LEO': {
-        score = base;
-        const inSaa = isInSAA(lat, lng);
-        if (inSaa) {
-            score += 10;
-            threat = `Proton flux ${protonFlux} pfu + SAA passage`;
-        } else {
-            threat = `Proton flux ${protonFlux} pfu`;
+        case 'LEO': {
+            score = base;
+            const inSaa = isInSAA(lat, lng);
+            if (inSaa) {
+                score += 10;
+                threat = `Proton flux ${protonFlux} pfu + SAA passage`;
+            } else {
+                threat = `Proton flux ${protonFlux} pfu`;
+            }
+            break;
         }
-        break;
-    }
-    case 'MEO':
-        score = base + 5;
-        threat = `Proton flux ${protonFlux} pfu (radiation belt)`;
-        break;
-    case 'GEO':
-        score = Math.round(base * 0.5);
-        threat = `Proton flux ${protonFlux} pfu (partial shielding)`;
-        break;
-    default:
-        score = base;
-        threat = `Proton flux ${protonFlux} pfu`;
+        case 'MEO':
+            score = base + 5;
+            threat = `Proton flux ${protonFlux} pfu (radiation belt)`;
+            break;
+        case 'GEO':
+            score = Math.round(base * 0.5);
+            threat = `Proton flux ${protonFlux} pfu (partial shielding)`;
+            break;
+        default:
+            score = base;
+            threat = `Proton flux ${protonFlux} pfu`;
     }
 
     return { score, threat };

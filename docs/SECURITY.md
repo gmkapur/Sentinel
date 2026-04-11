@@ -1,111 +1,158 @@
 # Security
 
-> **For AI Agents**: This document defines security boundaries. When working on any code
-> that touches API keys, data handling, or external services, read this document first
-> and follow its constraints strictly.
+> When working on code that touches API keys, data handling, or external services, follow these constraints strictly.
+
+---
+
+## Threat Model
+
+### Attack Surface
+
+| Surface | Exposure | Risk |
+|---------|----------|------|
+| Gateway REST API (`:3001`) | Public (no auth) | Low — read-only dashboard, no user data |
+| Gateway WebSocket | Public | Low — server-to-client only, no client commands |
+| Agent API (`:3002`) | Internal only (localhost) | Low — not exposed externally |
+| Agent push endpoint | Internal with shared secret | Medium — data injection if secret compromised |
+| External API keys | Server-side `.env` | Medium — Claude API key has billing implications |
+
+### Trust Boundaries
+
+```
+UNTRUSTED                    TRUSTED
+─────────────────────────────────────────────
+Browser (frontend)    ──►    Gateway REST/WS
+External API responses ──►   Agent pollers
+Claude API response   ──►    llmBrief.ts
+Agent push payload    ──►    Gateway (after x-internal-secret validation)
+```
+
+---
 
 ## Authentication
 
-### Auth Flow
-- **Method**: No user authentication for MVP — the application is a read-only dashboard
-- **Inter-service auth**: Agent → Gateway push authenticated via `x-internal-secret` header
-- **API key management**: NASA and Claude API keys stored in `.env`, loaded via `dotenv`
-- **External API auth**:
-  - NASA DONKI/NeoWs: API key as `api_key` query parameter
-  - NOAA SWPC: No authentication required
-  - CelesTrak: No authentication required
-  - NASA EONET: No authentication required
-  - Claude API: `x-api-key` header + `anthropic-version` header
+### Auth Model
+
+| Context | Method | Details |
+|---------|--------|---------|
+| Public API | None | Read-only dashboard — no user auth for MVP |
+| Inter-service | Shared secret header | `x-internal-secret` on `/internal/agent-push` |
+| NASA APIs | API key query param | `api_key` parameter from `NASA_API_KEY` env var |
+| NOAA SWPC | None | Public JSON endpoints |
+| CelesTrak | None | Public data mirror |
+| Claude API | API key header | `x-api-key` from `ANTHROPIC_API_KEY` env var |
 
 ### Auth Boundaries
+
 - All API keys are server-side only — never exposed to the frontend
-- Frontend communicates only with the gateway service, never directly with external APIs or the agent
+- Frontend communicates only with the gateway, never with external APIs or the agent
 - No user sessions, no login, no authorization model for MVP
-- Inter-service communication uses a shared secret (`INTERNAL_SECRET`) validated on the gateway's `/internal/agent-push` endpoint
+- Post-MVP: consider API key-based access if exposing as a public service
 
-## Authorization
-
-### Permission Model
-- **Type**: None for external users — MVP is a public read-only dashboard
-- **Internal**: Agent service authorized to push to gateway via `INTERNAL_SECRET` header
-- No roles, no access control, no multi-tenancy
-- Post-MVP: consider API key-based access if exposing as a service
+---
 
 ## Data Protection
 
-### Sensitive Data
-| Data Type | Storage | Encryption | Access Control |
-|-----------|---------|------------|----------------|
-| NASA API key | `.env` file, env vars | None (not a secret per se — free key) | Server process only (agent) |
-| Claude API key | `.env` file, env vars | None at rest | Server process only (agent) |
-| Internal secret | `.env` file, env vars | None at rest | Both agent and gateway processes |
+### Sensitive Data Inventory
+
+| Data | Location | Sensitivity | Protection |
+|------|----------|-------------|-----------|
+| `ANTHROPIC_API_KEY` | `.env`, process env | **High** (has billing) | Never log, commit, or send to frontend |
+| `NASA_API_KEY` | `.env`, process env | Low (free key) | Don't commit to git; don't expose to clients |
+| `INTERNAL_SECRET` | `.env`, process env | Medium | Prevents unauthorized data injection |
 
 ### Data Handling Rules
-- Never log API keys — sanitize environment variables before logging
-- Never expose API keys in REST responses or WebSocket messages
-- Never commit `.env` files to git
-- All data from external APIs is public government data — no PII, no sensitive user data
-- In-memory cache means no data persists to disk (except `.env`)
-- The `ANTHROPIC_API_KEY` is the most sensitive credential — it has associated billing. Never expose it.
+
+1. **Never log API keys** — sanitize environment variables before any logging
+2. **Never expose keys in responses** — REST and WebSocket messages must not contain secrets
+3. **Never commit `.env`** — `.gitignore` includes `.env`, `*.pem`, `*.key`
+4. **All external data is public** — NOAA/NASA data contains no PII or sensitive user data
+5. **In-memory cache = no data at rest** — except the `.env` file itself
+
+---
 
 ## Input Validation
-- **NORAD IDs**: Validated as numeric integers in `/api/satellites/:noradId`
-- **Data source names**: Validated against a whitelist in agent's `/data/:source` route
-- **Internal push header**: `x-internal-secret` strictly compared against `INTERNAL_SECRET` env var
-- **External data**: Treat all external API responses as untrusted — validate expected fields exist before accessing
-- **LLM output**: Claude API responses are JSON-parsed with error handling; fallback to deterministic briefs on parse failure
+
+| Input | Validation |
+|-------|-----------|
+| NORAD IDs (`:noradId`) | Validated as numeric integers |
+| Data source names (`:source`) | Validated against whitelist of valid source keys |
+| Internal push header | Strict string comparison of `x-internal-secret` |
+| External API responses | Treated as untrusted — validate expected fields before accessing |
+| LLM output | JSON-parsed with error handling; fallback to deterministic briefs on parse failure |
+
+---
 
 ## OWASP Top 10 Mitigations
 
-| Vulnerability | Mitigation |
-|--------------|------------|
-| SQL Injection | No database — not applicable |
-| XSS | React auto-escapes by default. No `dangerouslySetInnerHTML`. |
-| CSRF | No state-changing operations from browser — read-only dashboard |
-| Broken Auth | No user authentication — public dashboard. Inter-service auth uses shared secret. |
-| Injection | No shell execution with user input. API route params validated. LLM output parsed as JSON only. |
-| SSRF | Server-side pollers only fetch from hardcoded API URLs, not user-supplied URLs |
-| Security Misconfiguration | CORS configured to allow all origins in dev (`cors: { origin: '*' }`). Restrict in production. |
+| Vulnerability | Status | Mitigation |
+|--------------|--------|------------|
+| **SQL Injection** | N/A | No database (in-memory cache only) |
+| **XSS** | Mitigated | React auto-escapes by default. No `dangerouslySetInnerHTML`. |
+| **CSRF** | N/A | No state-changing operations from browser — read-only dashboard |
+| **Broken Authentication** | Accepted risk | No user auth for MVP. Inter-service uses shared secret. |
+| **Injection** | Mitigated | No shell execution with user input. Route params validated. LLM output parsed as JSON only. |
+| **SSRF** | Mitigated | Pollers only fetch from hardcoded API URLs, not user-supplied URLs |
+| **Security Misconfiguration** | Partial | CORS allows all origins in dev (`origin: '*'`). Restrict in production. |
+| **Vulnerable Dependencies** | Monitored | Run `npm audit` periodically. All deps are well-known packages. |
 
-## Secrets & Environment Variables
-- **Secret storage**: `.env` file for local dev, platform env vars for production
-- **Never committed**: `.env`, `*.pem`, `*.key`
-- **gitignore**: Ensure `.env` is in `.gitignore`
-- **Key rotation**: NASA keys don't expire. Claude API keys can be rotated via console.anthropic.com. Rotate `INTERNAL_SECRET` if compromised.
+---
 
-## API Key Security
-- **NASA API key**: Free and non-sensitive, but should not be committed to git or exposed to clients
-- **DEMO_KEY**: Public fallback with severe rate limits (30/hour) — always prefer a registered key
-- **Claude API key**: Has billing implications — treat as sensitive. Never log, commit, or expose to frontend.
-- **INTERNAL_SECRET**: Prevents unauthorized data injection into risk state. Use a strong random value in production.
+## Secrets Management
+
+| Environment | Strategy |
+|-------------|----------|
+| Development | `.env` file at monorepo root |
+| Production | Platform environment variables (Railway, Fly.io, Render) |
+| CI | GitHub Actions secrets |
+
+### Key Rotation
+
+| Secret | Rotation Policy |
+|--------|----------------|
+| `NASA_API_KEY` | Doesn't expire. Replace if compromised. |
+| `ANTHROPIC_API_KEY` | Rotate via console.anthropic.com if compromised |
+| `INTERNAL_SECRET` | Use strong random value in production. Rotate if compromised. |
+
+---
 
 ## Security Headers
+
+Currently configured:
 ```
 X-Content-Type-Options: nosniff
 X-Frame-Options: DENY
 ```
-Post-MVP: add CSP, HSTS, and other headers via helmet middleware.
 
-## Dependency Security
-- Keep dependencies minimal per package to reduce attack surface
-- Run `npm audit` periodically
-- All dependencies are well-known, widely-used packages (Express, Socket.io, axios, etc.)
-- No native modules or binary dependencies (except three.js WebGL)
+Post-MVP additions:
+- Content Security Policy (CSP)
+- HTTP Strict Transport Security (HSTS)
+- Additional headers via `helmet` middleware
+
+---
 
 ## Rate Limit Awareness
-External APIs have rate limits that could be abused if the server is exposed publicly:
 
-| API | Limit | Risk |
-|-----|-------|------|
+External APIs have rate limits that could be amplified if the server is exposed publicly:
+
+| API | Limit | Risk Level |
+|-----|-------|-----------|
 | NASA (registered key) | 1,000 req/hour | Low — pollers are cron-scheduled |
 | NASA (DEMO_KEY) | 30 req/hour, 50/day | Medium — easy to exhaust |
-| CelesTrak | No formal limit, 2-hour courtesy | Low — data only updates 3x/day |
-| Claude API | Per-plan limits | Low — brief generation is rate-limited by trigger conditions |
+| CelesTrak | No formal limit, 2-hour courtesy | Low — data updates 3x/day |
+| Claude API | Per-plan limits | Low — generation rate-limited by trigger conditions |
 
-If exposing the Express API publicly, consider adding rate limiting middleware (`express-rate-limit`) to prevent abuse amplifying requests to upstream APIs.
+**Post-MVP:** Add `express-rate-limit` middleware to prevent abuse that amplifies requests to upstream APIs.
+
+---
 
 ## Inter-Service Security
-- The gateway validates every agent push with `x-internal-secret` header comparison
-- Agent push payload is trusted after header validation — no additional schema validation (MVP trade-off)
-- Post-MVP: add JSON schema validation on the push payload to prevent malformed data from corrupting state
-- Both services run on localhost in dev; in production, use private networking between containers
+
+| Control | Status |
+|---------|--------|
+| Header validation on agent push | Active — `x-internal-secret` comparison |
+| Push payload schema validation | Not implemented (MVP trade-off) |
+| Network isolation | Localhost in dev; private networking in production |
+| TLS between services | Not implemented in dev; required in production |
+
+Post-MVP: Add JSON schema validation on push payload (Zod or JSON Schema) to prevent malformed data from corrupting state.

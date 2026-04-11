@@ -1,12 +1,24 @@
 # Per-Satellite Risk Assessment
 
+| Field | Value |
+|-------|-------|
+| **Type** | Technical Design Document |
+| **Status** | Design Complete |
+| **Feature** | Orbital context-aware risk scoring per satellite |
+| **Service** | Gateway (`:3001`) — runs alongside satellite propagation |
+| **Implementation guide** | [`PER_SATELLITE_RISK_IMPLEMENTATION.md`](PER_SATELLITE_RISK_IMPLEMENTATION.md) |
+
+---
+
 ## Problem
 
-The risk engine computes a single global 0–100 score. The satellite tracker computes positions for the 3D globe. These two systems are completely disconnected — there's no way to know which satellites are actually threatened by a given space weather event. An X-class flare is dangerous for a LEO CubeSat on the sunlit side, but irrelevant to a satellite in Earth's shadow. A Kp 7 geomagnetic storm causes atmospheric drag on LEO assets but barely affects GEO birds.
+The risk engine computes a single global 0-100 score. The satellite tracker computes positions for the 3D globe. These two systems are completely disconnected — there's no way to know which satellites are actually threatened by a given space weather event.
+
+An X-class flare is dangerous for a LEO CubeSat on the sunlit side, but irrelevant to a satellite in Earth's shadow. A Kp 7 geomagnetic storm causes atmospheric drag on LEO assets but barely affects GEO satellites.
 
 ## Goal
 
-Compute a per-satellite risk score that accounts for each satellite's orbital regime, current position relative to the sun, and exposure to active threats. Surface this in the UI so operators can see which of their assets are at risk and why.
+Compute a per-satellite risk score that accounts for each satellite's orbital regime, current position relative to the sun, and exposure to active threats. Surface this in the UI so operators see which of their assets are at risk and why.
 
 ---
 
@@ -16,292 +28,232 @@ Every tracked satellite gets classified by orbital regime using its altitude fro
 
 | Regime | Altitude | Key Vulnerabilities |
 |--------|----------|---------------------|
-| LEO | < 2,000 km | Atmospheric drag (Kp storms), direct radiation (flares/protons), SAA passage |
-| MEO | 2,000–35,786 km | Radiation belt exposure, trapped particle flux during storms |
-| GEO | ~35,786 km (±500) | Surface charging, deep dielectric charging during high-speed solar wind |
-| HEO/Other | Varies | Radiation belt transit on each orbit |
+| **LEO** | < 2,000 km | Atmospheric drag (Kp storms), direct radiation (flares/protons), SAA passage |
+| **MEO** | 2,000-35,786 km | Radiation belt exposure, trapped particle flux during storms |
+| **GEO** | ~35,786 km (+/- 500) | Surface charging, deep dielectric charging during high-speed solar wind |
+| **HEO/Other** | Varies | Radiation belt transit on each orbit |
 
 Classification is derived from the `alt` field already computed by `propagateAll()` — no new data source needed.
 
 ---
 
-## Per-Satellite Risk Scoring
+## Per-Satellite Scoring
 
-Each satellite gets its own risk score (0–100) derived from the global space weather state filtered through its orbital context.
+Each satellite gets its own 0-100 risk score derived from global space weather data filtered through its orbital context.
 
-### Scoring Components
+### 1. Solar Flare Exposure (Directional)
 
-#### 1. Solar Flare Exposure
+Flares are directional — only satellites on the **sunlit side** of Earth are directly exposed.
 
-Flares are directional — only satellites on the **sunlit side** of Earth are directly exposed to X-ray and UV flux.
+- Compute the **subsolar point** (where the sun is directly overhead) from current UTC time
+- For each satellite, compute the **solar zenith angle** (great-circle distance to subsolar point)
+- Zenith < 90°: sunlit -> apply full flare score
+- Zenith 90°-100°: terminator zone -> apply 50% flare score
+- Zenith > 100°: shadow -> flare score = 0
 
-- Compute the **subsolar point** (lat/lng where the sun is directly overhead) using the current UTC time
-- For each satellite, compute the **solar zenith angle** — the angle between the satellite's position and the subsolar point
-- If zenith angle < 90°: satellite is sunlit → apply full flare score
-- If zenith angle 90°–100°: satellite is in the terminator zone → apply 50% flare score
-- If zenith angle > 100°: satellite is in Earth's shadow → flare score = 0
+| Condition | Points (when sunlit) |
+|-----------|---------------------|
+| X-class | 40 |
+| M5+ | 25 |
+| M1-M4 | 15 |
+| C-class | 5 |
 
-Flare score (when exposed):
-- X-class → 40
-- M5+ → 25
-- M1–M4 → 15
-- C-class → 5
+### 2. Geomagnetic Storm / Atmospheric Drag (LEO Only)
 
-#### 2. Geomagnetic Storm / Atmospheric Drag (LEO only)
+Kp storms expand the upper atmosphere, increasing drag on LEO satellites.
 
-Kp storms cause the upper atmosphere to expand, increasing drag on LEO satellites. This doesn't meaningfully affect MEO/GEO.
+| Regime | Scoring |
+|--------|---------|
+| LEO (< 2,000 km) | Full geomagnetic score (Kp >= 7: 30, Kp >= 5: 15, Kp >= 4: 5) |
+| Lower LEO (< 500 km) | **1.5x multiplier** — drag effects strongest here |
+| MEO / GEO / HEO | Score = 0 |
 
-- LEO (< 2,000 km): Full geomagnetic score
-  - Kp ≥ 7 → 30
-  - Kp ≥ 5 → 15
-  - Kp ≥ 4 → 5
-- Lower LEO (< 500 km): Apply a **1.5x multiplier** — drag effects are strongest here
-- MEO/GEO/HEO: Score = 0
+### 3. Radiation / Proton Flux
 
-#### 3. Radiation / Proton Flux
+High-energy protons penetrate shielding. LEO satellites in the **South Atlantic Anomaly (SAA)** are especially vulnerable.
 
-High-energy protons penetrate spacecraft shielding. LEO satellites passing through the **South Atlantic Anomaly (SAA)** are especially vulnerable. MEO satellites in the radiation belts are also at risk.
+| Regime | Scoring |
+|--------|---------|
+| LEO | Base radiation score + **+10 SAA bonus** if in SAA region |
+| MEO (10,000-20,000 km) | Full radiation score + **+5 radiation belt** bonus |
+| GEO | 50% radiation score (partial magnetosphere shielding) |
 
-- LEO: Apply radiation score with SAA proximity bonus
-  - Base: ≥100 pfu → 25, ≥10 pfu → 15, ≥1 pfu → 5
-  - If satellite lat is between -50° and -10° AND lng between -90° and 40° (SAA region): +10 bonus
-- MEO (especially 10,000–20,000 km — inner radiation belt): Apply full radiation score + 5 bonus
-- GEO: Apply 50% radiation score (partial shielding by magnetosphere)
+SAA bounding box: Lat -50° to -10°, Lng -90° to 40°.
 
-#### 4. Solar Wind / Surface Charging (GEO emphasis)
+### 4. Solar Wind / Surface Charging (GEO Emphasis)
 
-High-speed solar wind causes differential surface charging on GEO satellites, risking electrostatic discharge.
+High-speed solar wind causes differential surface charging on GEO satellites.
 
-- GEO: Full solar wind score
-  - Speed > 700 km/s → 15 (elevated from global 10 due to GEO vulnerability)
-  - Speed > 500 km/s → 5
-- LEO/MEO: Score = 0 (magnetosphere shields inner orbits)
+| Regime | Scoring |
+|--------|---------|
+| GEO | Full wind score (>700 km/s: 15, >500 km/s: 5) — elevated due to GEO vulnerability |
+| LEO / MEO | Score = 0 (magnetosphere shields inner orbits) |
 
-#### 5. IMF Bz (Magnetosphere coupling)
+### 5. IMF Bz (Multiplier)
 
-Southward Bz opens the magnetosphere to solar wind energy injection. Amplifies all other effects.
+Southward Bz opens the magnetosphere. Applied as a **multiplier** on the total score:
 
-- Applied as a **multiplier** rather than additive points:
-  - Bz < -10 nT → multiply total score by 1.2
-  - Bz < -5 nT → multiply total score by 1.1
-  - Bz ≥ -5 nT → no multiplier
+| Bz Value | Multiplier |
+|----------|-----------|
+| < -10 nT | 1.2x |
+| < -5 nT | 1.1x |
+| >= -5 nT | 1.0x (no effect) |
 
-#### 6. NEO Proximity
+### 6. NEO Proximity
 
-Unchanged from global score. Applied uniformly since NEO risk is not orbit-dependent for threat awareness purposes.
+Unchanged from global score. Applied uniformly (not orbit-dependent).
 
-- PHA within 7 days → 5
+- PHA within 7 days: +5
 
 ### Compound Synergy (Per-Satellite)
 
-The same compound rules apply, but now they're gated by orbital context:
+Same rules, gated by orbital context:
 
-- **M5+ flare + Kp ≥ 5 + satellite is LEO and sunlit**: +15 (CME-driven storm confirmation for exposed LEO asset)
-- **Kp ≥ 7 + proton flux ≥ 100 + satellite is LEO**: +20 (severe radiation + drag)
-- **M5+ flare + satellite is sunlit**: +10 (direct radiation exposure window)
+| Combination | Bonus | Gate |
+|-------------|-------|------|
+| M5+ flare + Kp >= 5 + satellite is LEO and sunlit | +15 | CME-driven storm for exposed LEO |
+| Kp >= 7 + proton flux >= 100 + satellite is LEO | +20 | Severe radiation + drag |
+| M5+ flare + satellite is sunlit | +10 | Direct radiation exposure |
 
-### Final Score
+### Final Score Calculation
 
 ```
 rawScore = flareExposure + geomagnetic + radiation + solarWind + neo + compound
 adjustedScore = rawScore * bzMultiplier
 finalScore = min(adjustedScore, 100)
-level = scoreToLevel(finalScore)  // same thresholds: LOW/MODERATE/HIGH/CRITICAL
+level = scoreToLevel(finalScore)  // LOW/MODERATE/HIGH/CRITICAL
 ```
 
 ---
 
-## Architecture Changes
+## Architecture
 
-### Where Per-Satellite Scoring Runs
+### Where It Runs: Gateway, Not Agent
 
-**In the gateway, not the agent.**
-
-Rationale:
-- The gateway already owns satellite positions (TLE cache + SGP4 propagation every 10s)
-- Per-satellite scores change every 10 seconds as satellites move (sunlit → shadow transitions, SAA entry/exit)
-- The agent doesn't have satellite position data and shouldn't need it — it focuses on data ingestion and global risk
-- The gateway already receives the full space weather state from the agent push, which provides all the inputs needed
+**Rationale:**
+- The gateway already owns satellite positions (TLE cache + SGP4 every 10s)
+- Per-satellite scores change every 10 seconds as satellites move (sunlit/shadow, SAA)
+- The agent doesn't have position data and shouldn't need it
+- The gateway already receives full weather state from the agent push
 
 ### New Module: `packages/gateway/src/satRisk.ts`
 
-Responsible for:
-1. Classifying each satellite by orbital regime (LEO/MEO/GEO/HEO) based on altitude
-2. Computing the subsolar point for the current time
-3. Determining sunlit/shadow status for each satellite
-4. Detecting SAA proximity
-5. Computing per-satellite risk scores using the latest agent-pushed weather data
-6. Returning an enriched satellite position array
+1. Classify each satellite by orbital regime (LEO/MEO/GEO/HEO)
+2. Compute subsolar point for current time
+3. Determine sunlit/shadow status per satellite
+4. Detect SAA proximity per satellite
+5. Compute per-satellite risk scores using latest agent-pushed weather data
+6. Return enriched satellite position array
 
 ### Data Flow
 
 ```
-Agent pushes global weather state to gateway (existing flow, unchanged)
-    ↓
-Gateway receives agent push → stores in hot cache (existing)
+Agent pushes global weather state → gateway (unchanged)
     ↓
 Every 10 seconds (existing satellite broadcast loop):
-    1. propagateAll() → get all satellite positions (existing)
-    2. NEW: computePerSatelliteRisk(positions, latestWeatherState)
-       - For each satellite: classify orbit, check sunlit, check SAA, compute score
+    1. propagateAll() → satellite positions (existing)
+    2. computePerSatelliteRisk(positions, weatherState)  ← NEW
     3. Broadcast enriched positions via Socket.io
 ```
 
-### Type Changes
-
-#### `SatPosition` (packages/shared/types.ts)
-
-Add risk context to the existing type:
+### Type Extension
 
 ```typescript
 interface SatPosition {
-    id: number;           // NORAD ID (existing)
-    name: string;         // (existing)
-    lat: number;          // (existing)
-    lng: number;          // (existing)
-    alt: number;          // km (existing)
+  id: number;           // existing
+  name: string;         // existing
+  lat: number;          // existing
+  lng: number;          // existing
+  alt: number;          // existing
 
-    // New fields
-    orbitRegime: 'LEO' | 'MEO' | 'GEO' | 'HEO';
-    riskScore: number;          // 0–100 per-satellite
-    riskLevel: RiskLevel;       // LOW/MODERATE/HIGH/CRITICAL
-    isSunlit: boolean;
-    isInSAA: boolean;
-    threats: string[];          // e.g. ["M5+ flare (sunlit)", "Kp 7 drag"]
+  // New fields
+  orbitRegime: 'LEO' | 'MEO' | 'GEO' | 'HEO';
+  riskScore: number;          // 0-100 per-satellite
+  riskLevel: RiskLevel;       // LOW/MODERATE/HIGH/CRITICAL
+  isSunlit: boolean;
+  isInSAA: boolean;
+  threats: string[];          // e.g. ["M5+ flare (sunlit)", "Kp 7 drag"]
 }
 ```
 
-#### New Socket.io event payload
+Enriched fields ride on the existing `satellite-positions` Socket.io event — no new events needed.
 
-The existing `satellite-positions` event already sends `SatPosition[]`. The enriched fields ride on the same event — no new events needed. Frontend gets risk data for free.
+---
 
-### Gateway Changes
+## Frontend Changes
 
-**`packages/gateway/src/index.ts`** — In the 10-second broadcast loop, call `computePerSatelliteRisk()` after `propagateAll()` before emitting.
+### Globe Visualization
+- Color satellites by `riskLevel` (green/yellow/orange/red)
+- Toggle between altitude-based and risk-based coloring
 
-**`packages/gateway/src/routes.ts`** — The `GET /api/satellites` endpoint returns enriched positions. Add a new endpoint:
+### Satellite Detail Panel (New Component)
+- Click satellite -> show name, NORAD ID, orbit regime, altitude, lat/lng
+- Show per-satellite risk score, level, active threats
+- Show sunlit/shadow status, SAA proximity
 
-- `GET /api/satellites/:noradId/risk` — Returns detailed risk breakdown for a single satellite (useful for a satellite detail panel)
-
-### Frontend Changes
-
-**Globe visualization:**
-- Color satellites by their `riskLevel` instead of (or in addition to) altitude
-  - LOW → green
-  - MODERATE → yellow
-  - HIGH → orange
-  - CRITICAL → red
-- Add a toggle to switch between altitude-based and risk-based coloring
-
-**Satellite detail panel (new component):**
-- Click a satellite on the globe to open a detail panel
-- Shows: name, NORAD ID, orbit regime, altitude, lat/lng
-- Shows: per-satellite risk score, risk level, active threats list
-- Shows: sunlit/shadow status, SAA proximity
-- Shows: recommended action based on risk level
-
-**Satellite list/filter (new component):**
+### Satellite List (New Component)
 - Searchable/filterable list of tracked satellites
-- Sort by risk score (highest first) to see most threatened assets
-- Filter by orbit regime (LEO/MEO/GEO)
-- Filter by risk level (show only HIGH/CRITICAL)
+- Sort by risk score (highest first)
+- Filter by orbit regime and risk level
 
-**Alert integration:**
-- When a satellite transitions from LOW/MODERATE to HIGH/CRITICAL, surface it in the alert panel
-- "ISS (ZARYA) entered HIGH risk — M5+ flare exposure on sunlit side"
+### Alert Integration
+- Surface per-satellite alerts: "ISS (ZARYA) entered HIGH risk — M5+ flare exposure on sunlit side"
 
-### LLM Brief Enhancement
+---
 
-The agent's LLM prompt can be enriched with per-satellite context. Since the gateway computes per-satellite risk, the gateway can include a summary of the most-at-risk satellites when forwarding data back to the agent (or the agent can request it).
+## Watchlist
 
-Add to the LLM prompt:
-```
-MOST AT-RISK SATELLITES:
-  ISS (ZARYA) — CRITICAL (score 82): M5+ flare sunlit exposure + Kp 7 drag
-  STARLINK-1234 — HIGH (score 55): LEO SAA passage during proton event
-  ...
-```
+Operators track specific satellites via a client-side watchlist:
 
-This requires a new internal endpoint or including satellite risk summaries in the agent push response.
+- Stored in `localStorage` (no backend persistence for v1)
+- Highlighted on globe (larger dot, outline ring)
+- Dedicated panel with live risk scores
+- Browser Notification API alerts on HIGH/CRITICAL transitions
 
 ---
 
 ## Subsolar Point Calculation
 
-The subsolar point is where the sun is directly overhead. It determines which satellites are sunlit.
-
 ```typescript
 function getSubsolarPoint(date: Date): { lat: number; lng: number } {
-    const dayOfYear = getDayOfYear(date);
-    const hours = date.getUTCHours() + date.getUTCMinutes() / 60;
+  const dayOfYear = getDayOfYear(date);
+  const hours = date.getUTCHours() + date.getUTCMinutes() / 60;
 
-    // Solar declination (approximate)
-    const declination = -23.44 * Math.cos((360 / 365) * (dayOfYear + 10) * (Math.PI / 180));
+  // Solar declination (approximate)
+  const declination = -23.44 * Math.cos((360 / 365) * (dayOfYear + 10) * (Math.PI / 180));
 
-    // Subsolar longitude: sun is overhead at solar noon
-    // At 0:00 UTC, sun is at 180°E. It moves 15°/hour westward.
-    const lng = 180 - (hours * 15);
+  // Subsolar longitude: at 0:00 UTC, sun is at 180 deg E. Moves 15 deg/hour westward.
+  const lng = 180 - (hours * 15);
 
-    return {
-        lat: declination,
-        lng: lng > 180 ? lng - 360 : lng,
-    };
+  return {
+    lat: declination,
+    lng: lng > 180 ? lng - 360 : lng,
+  };
 }
 ```
 
-A satellite is sunlit if the great-circle distance from the satellite to the subsolar point is < ~90° (accounting for Earth's shadow geometry at the satellite's altitude — higher satellites have a slightly wider sunlit zone).
-
 ---
 
-## SAA Detection
+## Performance
 
-The South Atlantic Anomaly is a region where the inner Van Allen belt dips closest to Earth's surface (~200 km). Satellites passing through it receive elevated radiation.
-
-Approximate bounding box:
-- Latitude: -50° to -10°
-- Longitude: -90° to 40°
-
-A more accurate model uses an elliptical region centered around (-26°, -53°) with semi-axes of ~30° lat and ~60° lng. For v1, the bounding box is sufficient.
-
----
-
-## Watchlist Feature
-
-Operators care about specific satellites, not all 5,000+ in the catalog. Add a **watchlist** so users can track their assets:
-
-### Frontend
-- Users can add satellites to a watchlist by clicking "Watch" on the globe or satellite list
-- Watchlist is stored in `localStorage` (no backend persistence needed for v1)
-- Watchlist satellites get:
-  - Highlighted on the globe (larger dot, outline ring)
-  - A dedicated panel showing all watchlisted satellites with live risk scores
-  - Push notifications (browser Notification API) when a watchlisted satellite enters HIGH/CRITICAL
-
-### Backend
-- No backend changes needed for v1 — all watchlist state is client-side
-- Future: user accounts + server-side watchlists with email/webhook alerts
+- Per-satellite scoring for ~5,000 satellites every 10 seconds: basic arithmetic, no API calls
+- Subsolar point: recalculated once per broadcast cycle (not per satellite)
+- SAA check: simple bounding box test
+- Sunlit check: one `acos` call per satellite
+- **Total added latency to broadcast loop: < 10ms for 5,000 satellites**
 
 ---
 
 ## Implementation Order
 
-1. **`satRisk.ts` module** — Core per-satellite scoring logic in the gateway
-2. **Extend `SatPosition` type** — Add risk fields to the shared type
-3. **Wire into broadcast loop** — Enrich positions before Socket.io emit
-4. **Globe coloring** — Color satellites by risk level
-5. **Satellite detail panel** — Click-to-inspect with risk breakdown
-6. **Satellite list + search** — Filterable table sorted by risk
-7. **Watchlist** — Client-side satellite tracking with notifications
-8. **LLM brief enrichment** — Feed per-satellite context to Claude
-9. **Per-satellite alerts** — Notify when watched satellites enter HIGH/CRITICAL
+1. `satRisk.ts` module — core scoring logic
+2. Extend `SatPosition` type with risk fields
+3. Wire into broadcast loop (enrich before Socket.io emit)
+4. Globe coloring by risk level
+5. Satellite detail panel
+6. Satellite list + search/filter
+7. Watchlist (client-side with notifications)
+8. LLM brief enrichment (per-satellite context to Claude)
+9. Per-satellite alerts
 
----
-
-## Performance Considerations
-
-- Computing per-satellite risk for ~5,000 satellites every 10 seconds is cheap — it's basic arithmetic per satellite, no API calls
-- The subsolar point only needs recalculating once per broadcast cycle (not per satellite)
-- SAA check is a simple bounding box test
-- The sunlit check is a single great-circle distance calculation (one `acos` call)
-- Total added latency to the broadcast loop: < 10ms for 5,000 satellites
-- No additional external API calls — all inputs come from the existing agent push data
+See [`PER_SATELLITE_RISK_IMPLEMENTATION.md`](PER_SATELLITE_RISK_IMPLEMENTATION.md) for the step-by-step implementation guide.

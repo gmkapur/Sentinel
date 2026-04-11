@@ -14,12 +14,13 @@ export const RISK_THRESHOLDS = {
 
 export const EARTH_RADIUS_KM = 6371;
 
-export const BREAKDOWN_LABELS: Record<string, { label: string; icon: string }> = {
-    flare: { label: 'Solar Flare', icon: 'Zap' },
-    geomagnetic: { label: 'Geomagnetic', icon: 'Activity' },
-    radiation: { label: 'Radiation', icon: 'Radiation' },
-    solarWind: { label: 'Solar Wind', icon: 'Wind' },
-    imfBz: { label: 'IMF Bz', icon: 'Magnet' },
-    neo: { label: 'NEO', icon: 'Orbit' },
-    compound: { label: 'Compound', icon: 'AlertTriangle' },
-};
+export const BREAKDOWN_LABELS: Record<string, { label: string; icon: string }> =
+    {
+        flare: { label: 'Solar Flare', icon: 'Zap' },
+        geomagnetic: { label: 'Geomagnetic', icon: 'Activity' },
+        radiation: { label: 'Radiation', icon: 'Radiation' },
+        solarWind: { label: 'Solar Wind', icon: 'Wind' },
+        imfBz: { label: 'IMF Bz', icon: 'Magnet' },
+        neo: { label: 'NEO', icon: 'Orbit' },
+        compound: { label: 'Compound', icon: 'AlertTriangle' },
+    };

@@ -1,86 +1,124 @@
 # Code Conventions
 
-> **Principle**: Only document conventions that DEVIATE from the language/framework defaults.
-> Standard patterns (e.g., React components in PascalCase) don't need to be listed —
-> agents infer these from existing code. Focus on the surprising or non-standard.
+> Only documents conventions that deviate from language/framework defaults. Standard patterns (React components in PascalCase, Express route handlers) are inferred from existing code.
+
+---
 
 ## File & Directory Naming
-- Backend source files use camelCase: `riskEngine.ts`, `dataCache.ts`, `agentState.ts`
-- Poller files are named after the data source: `swpc.ts`, `donki.ts`, `neows.ts`, `eonet.ts`
-- React components use PascalCase: `GlobeView.tsx`, `AlertPanel.tsx`, `RiskBanner.tsx`
-- Hook files use camelCase with `use` prefix: `useSocket.ts`, `useSatellites.ts`
-- Test files co-located in `tests/` directory, mirroring source structure: `tests/unit/agent/riskEngine.test.ts`
 
-## Code Organization Patterns
+| Context | Convention | Examples |
+|---------|-----------|----------|
+| Backend source files | camelCase | `riskEngine.ts`, `dataCache.ts`, `agentState.ts` |
+| Poller files | Named after data source | `swpc.ts`, `donki.ts`, `neows.ts`, `eonet.ts` |
+| React components | PascalCase | `GlobeView.tsx`, `AlertPanel.tsx`, `RiskBanner.tsx` |
+| React hooks | camelCase with `use` prefix | `useSocket.ts`, `useSatellites.ts` |
+| Test files | Mirror source structure in `tests/` | `tests/unit/agent/riskEngine.test.ts` |
 
-### Monorepo Structure
+---
+
+## Monorepo Organization
+
 ```
 packages/
-├── shared/              # Shared TypeScript interfaces (types.ts)
+├── shared/              # Types only (no runtime code)
 ├── agent/src/           # Autonomous reasoning engine
-│   ├── pollers/         # One file per data source (swpc.ts, donki.ts, neows.ts, eonet.ts)
-│   ├── dataCache.ts     # Centralized cache with source-specific TTLs
-│   ├── riskEngine.ts    # Fusion scoring logic
-│   ├── llmBrief.ts      # Claude API integration
-│   ├── push.ts          # Gateway push module
+│   ├── pollers/         # One file per data source
+│   ├── dataCache.ts     # Centralized cache
+│   ├── riskEngine.ts    # Scoring logic
+│   ├── llmBrief.ts      # Claude integration
+│   ├── push.ts          # Gateway push
 │   ├── router.ts        # Express routes
-│   └── index.ts         # Entry point + cron scheduling
+│   └── index.ts         # Entry + cron scheduling
 ├── gateway/src/         # Client-facing service
-│   ├── satellites.ts    # TLE cache + SGP4 propagation
-│   ├── agentState.ts    # In-memory agent state store
-│   ├── routes.ts        # Express routes + internal push endpoint
-│   └── index.ts         # Entry point + Socket.io setup
+│   ├── satellites.ts    # TLE cache + SGP4
+│   ├── agentState.ts    # In-memory state store
+│   ├── routes.ts        # Express routes + internal push
+│   └── index.ts         # Entry + Socket.io
 └── frontend/src/        # React app
-    ├── components/      # One file per UI component
+    ├── components/      # One file per component
     ├── hooks/           # Custom React hooks
-    └── types/           # Frontend TypeScript interfaces
+    └── types/           # Frontend interfaces
 ```
 
-### Import Order
+---
+
+## Naming Conventions
+
+| Context | Convention | Examples |
+|---------|-----------|----------|
+| API route paths | kebab-case | `/api/space-weather`, `/api/agent/brief` |
+| Environment variables | UPPER_SNAKE_CASE | `NASA_API_KEY`, `INTERNAL_SECRET` |
+| Cache keys | dash-delimited | `swpc-xray`, `donki-flares`, `swpc-mag` |
+| Risk levels | Uppercase constants | `LOW`, `MODERATE`, `HIGH`, `CRITICAL` |
+| Recommendations | Uppercase constants | `GO`, `CAUTION`, `NO-GO` |
+| Socket.io events | kebab-case | `risk-alert`, `risk-update`, `satellite-positions` |
+| Threat types | snake_case | `solar_flare`, `geomagnetic_storm`, `radiation_storm` |
+
+---
+
+## Import Order
+
 1. Node built-ins (`import http from 'http'`)
 2. External packages (`import express from 'express'`)
 3. Internal modules (`import { evaluate } from './riskEngine'`)
 
 Blank line between each group.
 
-## Naming Conventions
-- API route paths use kebab-case: `/api/space-weather`, `/api/agent/brief`
-- Environment variables use UPPER_SNAKE_CASE: `NASA_API_KEY`, `INTERNAL_SECRET`
-- Cache keys use dash-delimited strings: `swpc-xray`, `donki-flares`, `swpc-mag`
-- Risk levels are uppercase string constants: `LOW`, `MODERATE`, `HIGH`, `CRITICAL`
-- Recommendations are uppercase: `GO`, `CAUTION`, `NO-GO`
-- Socket.io event names use kebab-case: `risk-alert`, `risk-update`, `satellite-positions`, `space-weather`
-- Threat types use snake_case: `solar_flare`, `geomagnetic_storm`, `radiation_storm`
+---
 
 ## TypeScript Conventions
-- Strict mode enabled in all packages
-- ES2022 target, CommonJS modules (backend), ESM (frontend via Vite)
-- Shared interfaces defined in `packages/shared/types.ts`, imported with relative paths
-- Use `as const` for constant objects (cache keys, TTLs)
-- Prefer explicit return types on exported functions
-- Use `interface` for object shapes, `type` for unions and aliases
+
+| Rule | Details |
+|------|---------|
+| Strict mode | Enabled in all packages |
+| Target | ES2022, CommonJS (backend), ESM (frontend) |
+| Shared types | `packages/shared/types.ts`, imported via relative paths |
+| Constants | Use `as const` for constant objects (cache keys, TTLs) |
+| Return types | Explicit on exported functions |
+| Object shapes | Use `interface` |
+| Unions/aliases | Use `type` |
+
+---
 
 ## Error Handling
-- Pollers catch all errors and log them — never let a failed API call crash the server
-- Serve stale cached data when an API is down (graceful degradation)
-- API routes return `{ error: "message" }` format on failure
-- Never throw raw strings — always throw Error instances
-- LLM calls have deterministic fallback when API is unavailable
+
+| Rule | Rationale |
+|------|-----------|
+| Pollers catch all errors and log | Never let a failed API call crash the server |
+| Serve stale cache on API failure | Graceful degradation — some data is better than none |
+| API routes return `{ error: "message" }` | Consistent error shape for frontend |
+| Never throw raw strings | Always throw `Error` instances |
+| LLM calls have deterministic fallback | System works without Claude API key |
+
+---
 
 ## Async Patterns
-- Always use async/await, never raw Promises with `.then()`
-- Pollers are independent — a failure in one never blocks others
-- Use try/catch in every poller function with logging on catch
-- Use `Promise.allSettled()` for parallel initial fetch (never `Promise.all()` — one failure shouldn't block others)
 
-## Data Format Conventions
-- Dates in API responses use ISO 8601 format
-- Coordinates use decimal degrees (latitude, longitude) and kilometers (altitude)
-- Risk scores are integers 0–100
-- Timestamps in internal payloads are Unix milliseconds (`Date.now()`)
+| Rule | Rationale |
+|------|-----------|
+| Always use `async/await` | Never raw `.then()` chains |
+| Pollers are independent | One failure never blocks others |
+| `try/catch` in every poller | With logging on catch |
+| `Promise.allSettled()` for parallel fetch | Never `Promise.all()` — one failure shouldn't block the rest |
+
+---
+
+## Data Formats
+
+| Data Type | Format |
+|-----------|--------|
+| Dates in API responses | ISO 8601 |
+| Coordinates | Decimal degrees (lat, lng), kilometers (alt) |
+| Risk scores | Integer 0-100 |
+| Internal timestamps | Unix milliseconds (`Date.now()`) |
+
+---
 
 ## Dependency Rules
-- Keep dependencies minimal per package
-- No Redis, no database, no BullMQ — use in-memory alternatives
-- All external data fetching goes through server-side pollers in the agent — never from the client
-- Inter-service communication uses HTTP POST with `x-internal-secret` header
+
+| Rule | Rationale |
+|------|-----------|
+| Minimal dependencies per package | Reduce attack surface and bundle size |
+| No Redis, no database, no BullMQ for MVP | In-memory alternatives; zero infrastructure |
+| All external data fetching via agent pollers | Never from the client (CORS, security) |
+| Inter-service auth via `x-internal-secret` | Prevents unauthorized data injection |

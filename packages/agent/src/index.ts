@@ -7,7 +7,14 @@ dotenv.config({ path: path.resolve(__dirname, '..', '..', '..', '.env') });
 import express from 'express';
 import cron from 'node-cron';
 
+import { validateEnv } from './env';
 import router from './router';
+
+// ---------------------------------------------------------------------------
+// Environment validation
+// ---------------------------------------------------------------------------
+
+validateEnv();
 import { pollSWPC } from './pollers/swpc';
 import { pollDONKI } from './pollers/donki';
 import { pollNeoWs } from './pollers/neows';
@@ -76,8 +83,7 @@ async function runEvaluationCycle(): Promise<void> {
                 getUpcomingNeos(7),
             ]);
             brief = await generateBrief(risk, weather, flares, cmes, neos);
-        }
-        else if (!brief) {
+        } else if (!brief) {
             // Generate fallback if no brief exists at all
             brief = generateFallbackBrief(risk);
             await saveMissionBrief(brief);
@@ -109,8 +115,7 @@ async function runEvaluationCycle(): Promise<void> {
         await pushToGateway(payload);
 
         console.log('[Cycle] Evaluation cycle complete');
-    }
-    catch (error) {
+    } catch (error) {
         const msg = error instanceof Error ? error.message : String(error);
         console.error(`[Cycle] Evaluation cycle failed: ${msg}`);
     }
@@ -142,7 +147,9 @@ async function initialFetch(): Promise<void> {
 
     console.log('[Init] Initial fetch complete, running first evaluation...');
     if (DEMO_MODE) {
-        console.log('[DEMO] Demo mode enabled — overlaying fake high-risk data');
+        console.log(
+            '[DEMO] Demo mode enabled — overlaying fake high-risk data',
+        );
     }
     await runEvaluationCycle();
 }

@@ -88,7 +88,10 @@ export async function checkAndAlert(
     const decision = shouldCall(currentRisk, previousRisk, state, config);
 
     if (!decision.call) {
-        if (config.enabled && config.triggerLevels.includes(currentRisk.level)) {
+        if (
+            config.enabled &&
+            config.triggerLevels.includes(currentRisk.level)
+        ) {
             console.log(`[PhoneAlert] Skipped: ${decision.reason}`);
         }
         return;

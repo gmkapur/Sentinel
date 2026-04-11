@@ -62,7 +62,9 @@ export function getLatestState(): LatestState {
 // Alert history (cold path — Prisma query)
 // ---------------------------------------------------------------------------
 
-export async function getAlertHistory(limit: number = 100): Promise<AlertRecord[]> {
+export async function getAlertHistory(
+    limit: number = 100,
+): Promise<AlertRecord[]> {
     const rows = await prisma.alertRecord.findMany({
         orderBy: { timestamp: 'desc' },
         take: limit,
@@ -87,10 +89,11 @@ export interface AgentPushResult {
 }
 
 export async function processAgentPush(
-    payload: AgentPushPayload
+    payload: AgentPushPayload,
 ): Promise<AgentPushResult> {
     const previousLevel = latest.risk?.level ?? null;
-    const isAlert = previousLevel !== null && previousLevel !== payload.risk.level;
+    const isAlert =
+        previousLevel !== null && previousLevel !== payload.risk.level;
 
     // 1. Persist snapshot to Postgres
     await prisma.agentSnapshot.create({
@@ -162,14 +165,16 @@ export async function hydrateFromDb(): Promise<void> {
             timestamp: snapshot.timestamp.toISOString(),
         };
         latest.brief = snapshot.brief as unknown as MissionBrief | null;
-        latest.spaceWeather = snapshot.spaceWeather as unknown as SpaceWeatherState;
+        latest.spaceWeather =
+            snapshot.spaceWeather as unknown as SpaceWeatherState;
         latest.flares = snapshot.flares as unknown as DONKIFlare[];
         latest.cmes = snapshot.cmes as unknown as DONKICME[];
         latest.neos = snapshot.neos as unknown as NEOObject[];
         latest.lastUpdate = snapshot.timestamp.toISOString();
-        console.log(`[AgentState] Hydrated from DB — last snapshot: ${snapshot.timestamp.toISOString()}`);
-    }
-    else {
+        console.log(
+            `[AgentState] Hydrated from DB — last snapshot: ${snapshot.timestamp.toISOString()}`,
+        );
+    } else {
         console.log('[AgentState] No prior snapshots found — starting fresh');
     }
 }

@@ -81,8 +81,7 @@ export async function pollDONKI(): Promise<void> {
         await upsertFlares(flares);
         await updatePollStatus('donki-flares', true);
         console.log(`[DONKI] Flares — ${flares.length} records`);
-    }
-    else {
+    } else {
         const err =
             results[0].reason instanceof Error
                 ? results[0].reason.message
@@ -97,8 +96,7 @@ export async function pollDONKI(): Promise<void> {
         await upsertCMEs(cmes);
         await updatePollStatus('donki-cme', true);
         console.log(`[DONKI] CMEs — ${cmes.length} records`);
-    }
-    else {
+    } else {
         const err =
             results[1].reason instanceof Error
                 ? results[1].reason.message

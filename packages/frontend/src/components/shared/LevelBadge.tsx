@@ -20,9 +20,9 @@ const SIZE_CLASSES = {
 export function LevelBadge({ level, size = 'sm' }: LevelBadgeProps) {
     return (
         <span
-            className={ `inline-block rounded font-mono font-medium uppercase ${SIZE_CLASSES[size]} ${LEVEL_CLASSES[level]}` }
+            className={`inline-block rounded font-mono font-medium uppercase ${SIZE_CLASSES[size]} ${LEVEL_CLASSES[level]}`}
         >
-            { level }
+            {level}
         </span>
     );
 }

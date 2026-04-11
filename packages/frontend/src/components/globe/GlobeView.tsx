@@ -1,11 +1,15 @@
 import { useRef, useEffect, useState, useCallback, useMemo } from 'react';
 import Globe from 'react-globe.gl';
 import { useMissionStore } from '../../stores/missionStore';
-import { getAltitudeColor, getRiskLevelColor, RISK_COLORS } from '../../utils/colors';
+import {
+    getAltitudeColor,
+    getRiskLevelColor,
+    RISK_COLORS,
+} from '../../utils/colors';
 import { EARTH_RADIUS_KM } from '../../utils/constants';
 import { SatelliteTooltip } from './SatelliteTooltip';
 import { SatelliteDetailPanel } from '../satellite/SatelliteDetailPanel';
-import type { SatPosition, RiskLevel } from '@sentinel/shared/src/types';
+import type { SatPosition } from '@sentinel/shared/src/types';
 
 type ColorMode = 'risk' | 'altitude';
 
@@ -77,28 +81,26 @@ export function GlobeView() {
             if (colorMode !== 'risk') return 0.25;
             const sat = d as SatPosition;
             switch (sat.riskLevel) {
-            case 'CRITICAL': return 0.45;
-            case 'HIGH': return 0.35;
-            case 'MODERATE': return 0.25;
-            default: return 0.15;
+                case 'CRITICAL':
+                    return 0.45;
+                case 'HIGH':
+                    return 0.35;
+                case 'MODERATE':
+                    return 0.25;
+                default:
+                    return 0.15;
             }
         },
         [colorMode],
     );
 
-    const handlePointHover = useCallback(
-        (point: object | null) => {
-            setHoveredSat(point as SatPosition | null);
-        },
-        [],
-    );
+    const handlePointHover = useCallback((point: object | null) => {
+        setHoveredSat(point as SatPosition | null);
+    }, []);
 
-    const handlePointClick = useCallback(
-        (point: object) => {
-            setSelectedSat(point as SatPosition);
-        },
-        [],
-    );
+    const handlePointClick = useCallback((point: object) => {
+        setSelectedSat(point as SatPosition);
+    }, []);
 
     const globeImageUrl = useMemo(
         () => 'https://unpkg.com/three-globe/example/img/earth-night.jpg',
@@ -113,84 +115,88 @@ export function GlobeView() {
     const legendItems: Array<{ color: string; label: string }> =
         colorMode === 'risk'
             ? [
-                { color: RISK_COLORS.LOW, label: 'LOW' },
-                { color: RISK_COLORS.MODERATE, label: 'MOD' },
-                { color: RISK_COLORS.HIGH, label: 'HIGH' },
-                { color: RISK_COLORS.CRITICAL, label: 'CRIT' },
-            ]
+                  { color: RISK_COLORS.LOW, label: 'LOW' },
+                  { color: RISK_COLORS.MODERATE, label: 'MOD' },
+                  { color: RISK_COLORS.HIGH, label: 'HIGH' },
+                  { color: RISK_COLORS.CRITICAL, label: 'CRIT' },
+              ]
             : [
-                { color: '#22d3ee', label: 'LEO' },
-                { color: '#eab308', label: 'MEO' },
-                { color: '#f97316', label: 'GEO' },
-                { color: '#a855f7', label: 'HEO' },
-            ];
+                  { color: '#22d3ee', label: 'LEO' },
+                  { color: '#eab308', label: 'MEO' },
+                  { color: '#f97316', label: 'GEO' },
+                  { color: '#a855f7', label: 'HEO' },
+              ];
 
     return (
         <div
-            ref={ containerRef }
+            ref={containerRef}
             className="relative overflow-hidden bg-void"
-            onMouseDown={ handleInteraction }
-            onWheel={ handleInteraction }
+            onMouseDown={handleInteraction}
+            onWheel={handleInteraction}
         >
-            { dimensions.width > 0 && (
+            {dimensions.width > 0 && (
                 <Globe
-                    ref={ globeRef }
-                    width={ dimensions.width }
-                    height={ dimensions.height }
-                    globeImageUrl={ globeImageUrl }
-                    backgroundImageUrl={ bgImageUrl }
+                    ref={globeRef}
+                    width={dimensions.width}
+                    height={dimensions.height}
+                    globeImageUrl={globeImageUrl}
+                    backgroundImageUrl={bgImageUrl}
                     atmosphereColor="#1a3a5c"
-                    atmosphereAltitude={ 0.15 }
-                    pointsData={ satellites }
+                    atmosphereAltitude={0.15}
+                    pointsData={satellites}
                     pointLat="lat"
                     pointLng="lng"
-                    pointAltitude={ pointAlt }
-                    pointColor={ pointColor }
-                    pointRadius={ pointRadius }
-                    pointResolution={ 6 }
-                    pointsMerge={ false }
-                    onPointHover={ handlePointHover }
-                    onPointClick={ handlePointClick }
-                    animateIn={ false }
+                    pointAltitude={pointAlt}
+                    pointColor={pointColor}
+                    pointRadius={pointRadius}
+                    pointResolution={6}
+                    pointsMerge={false}
+                    onPointHover={handlePointHover}
+                    onPointClick={handlePointClick}
+                    animateIn={false}
                 />
-            ) }
+            )}
 
             {/* Color mode toggle + legend */}
             <div className="absolute bottom-4 left-4 z-10 flex items-center gap-3">
                 <button
-                    onClick={ () => setColorMode((m) => (m === 'risk' ? 'altitude' : 'risk')) }
+                    onClick={() =>
+                        setColorMode((m) =>
+                            m === 'risk' ? 'altitude' : 'risk',
+                        )
+                    }
                     className="glass-panel px-2.5 py-1 font-mono text-[10px] uppercase tracking-wider text-text-secondary hover:text-accent transition-colors cursor-pointer"
                 >
-                    { colorMode === 'risk' ? 'Risk' : 'Altitude' }
+                    {colorMode === 'risk' ? 'Risk' : 'Altitude'}
                 </button>
                 <div className="flex items-center gap-2">
-                    { legendItems.map((item) => (
+                    {legendItems.map((item) => (
                         <span
-                            key={ item.label }
+                            key={item.label}
                             className="flex items-center gap-1 font-mono text-[10px] text-text-muted"
                         >
                             <span
                                 className="w-1.5 h-1.5 rounded-full inline-block"
-                                style={ { backgroundColor: item.color } }
+                                style={{ backgroundColor: item.color }}
                             />
-                            { item.label }
+                            {item.label}
                         </span>
-                    )) }
+                    ))}
                 </div>
             </div>
 
-            { hoveredSat && (
+            {hoveredSat && (
                 <div className="absolute top-4 right-4 z-10">
-                    <SatelliteTooltip satellite={ hoveredSat } />
+                    <SatelliteTooltip satellite={hoveredSat} />
                 </div>
-            ) }
+            )}
 
-            { selectedSat && (
+            {selectedSat && (
                 <SatelliteDetailPanel
-                    satellite={ selectedSat }
-                    onClose={ () => setSelectedSat(null) }
+                    satellite={selectedSat}
+                    onClose={() => setSelectedSat(null)}
                 />
-            ) }
+            )}
         </div>
     );
 }

@@ -1,10 +1,15 @@
 # Development Guide
 
 ## Prerequisites
-- Node.js >= 20
-- npm (comes with Node.js)
-- A free NASA API key from https://api.nasa.gov (optional — `DEMO_KEY` works with lower rate limits)
-- A Claude API key from https://console.anthropic.com (optional — deterministic fallback briefs without it)
+
+| Requirement | Version | Notes |
+|-------------|---------|-------|
+| Node.js | >= 20 | Required for native fetch and stable ESM |
+| npm | Included with Node.js | Used for workspace management |
+| NASA API key | Free | Register at https://api.nasa.gov (instant, no approval) |
+| Claude API key | Optional | Get from https://console.anthropic.com (enables LLM briefs) |
+
+---
 
 ## First-Time Setup
 
@@ -13,56 +18,78 @@
 git clone <repo-url>
 cd sentinel
 
-# 2. Install all dependencies (workspace root — installs agent, gateway, and frontend)
+# 2. Install all dependencies (workspace root)
 npm install
 
-# 3. Set up environment variables
+# 3. Configure environment variables
 cp .env.example .env
-# Edit .env and add your API keys:
+# Edit .env:
 #   NASA_API_KEY=your-key-here       (free at api.nasa.gov)
-#   ANTHROPIC_API_KEY=sk-ant-...     (optional, for LLM briefs)
+#   ANTHROPIC_API_KEY=sk-ant-...     (optional — for LLM briefs)
+#   INTERNAL_SECRET=any-shared-key   (must match between services)
 
-# 4. Start both services + frontend (in separate terminals)
+# 4. Start all three services (separate terminals)
 cd packages/agent && npm run dev     # Terminal 1: Agent on :3002
 cd packages/gateway && npm run dev   # Terminal 2: Gateway on :3001
 cd packages/frontend && npm run dev  # Terminal 3: Frontend on :5173
 ```
 
-No database setup required — all data is cached in-memory and fetched from live APIs.
+No database setup required — all data is cached in-memory and fetched from live APIs on startup.
 
-## Common Development Commands
+---
+
+## Common Commands
+
+### Running Services
 
 ```bash
-# Start agent service (data pollers + risk engine + LLM, port 3002)
-cd packages/agent && npm run dev
+# Agent service (data pollers + risk engine + LLM briefs)
+cd packages/agent && npm run dev          # Dev mode with watch (port 3002)
 
-# Start gateway service (REST API + Socket.io + satellites, port 3001)
-cd packages/gateway && npm run dev
+# Gateway service (REST API + Socket.io + satellite propagation)
+cd packages/gateway && npm run dev        # Dev mode with watch (port 3001)
 
-# Start frontend (Vite dev server, port 5173)
-cd packages/frontend && npm run dev
-
-# Lint check (no auto-fix)
-npm run lint
-
-# Lint with auto-fix
-npm run lint:fix
-
-# Format check
-npm run format:check
-
-# Format code
-npm run format
-
-# Build agent for production
-cd packages/agent && npm run build
-
-# Build gateway for production
-cd packages/gateway && npm run build
-
-# Build frontend for production
-cd packages/frontend && npm run build
+# Frontend (Vite dev server)
+cd packages/frontend && npm run dev       # Dev mode with HMR (port 5173)
 ```
+
+### Code Quality
+
+```bash
+npm run lint                              # Check for linting errors
+npm run lint:fix                          # Auto-fix linting errors
+npm run format:check                      # Check formatting
+npm run format                            # Auto-format code
+```
+
+### Building for Production
+
+```bash
+cd packages/agent && npm run build        # Compile agent TypeScript
+cd packages/gateway && npm run build      # Compile gateway TypeScript
+cd packages/frontend && npm run build     # Build frontend (outputs to dist/)
+```
+
+### Verifying the System
+
+```bash
+# Check agent health and poller status
+curl http://localhost:3002/health
+
+# Check full system state (risk, brief, weather, satellites)
+curl http://localhost:3001/api/status
+
+# Check satellite positions
+curl http://localhost:3001/api/satellites
+
+# Check raw cached data from a specific source
+curl http://localhost:3002/data/swpc-xray
+
+# Force a new LLM brief generation
+curl -X POST http://localhost:3001/api/agent/brief
+```
+
+---
 
 ## Project Structure
 
@@ -73,74 +100,51 @@ sentinel/
 │   │   └── types.ts               # All domain interfaces
 │   │
 │   ├── agent/                     # Service 2 — port 3002
-│   │   ├── src/
-│   │   │   ├── index.ts           # Express server + cron scheduling + initial fetch
-│   │   │   ├── router.ts          # Lightweight API routes
-│   │   │   ├── pollers/
-│   │   │   │   ├── swpc.ts        # NOAA SWPC (X-ray, Kp, protons, wind, mag, alerts)
-│   │   │   │   ├── donki.ts       # NASA DONKI (flares, CMEs, geomagnetic storms)
-│   │   │   │   ├── neows.ts       # NASA NeoWs (near-Earth objects)
-│   │   │   │   └── eonet.ts       # NASA EONET (natural events)
-│   │   │   ├── dataCache.ts       # node-cache wrapper with source-specific TTLs
-│   │   │   ├── riskEngine.ts      # Fusion scoring engine (0–100)
-│   │   │   ├── llmBrief.ts        # Claude API for mission briefs
-│   │   │   └── push.ts            # HTTP push to gateway
-│   │   ├── package.json
-│   │   └── tsconfig.json
+│   │   └── src/
+│   │       ├── index.ts           # Entry point + cron scheduling
+│   │       ├── router.ts          # API routes
+│   │       ├── pollers/           # One file per data source
+│   │       ├── dataCache.ts       # Cache wrapper
+│   │       ├── riskEngine.ts      # Scoring engine
+│   │       ├── llmBrief.ts        # Claude API
+│   │       └── push.ts            # Gateway push
 │   │
 │   ├── gateway/                   # Service 1 — port 3001
-│   │   ├── src/
-│   │   │   ├── index.ts           # Express + Socket.io server
-│   │   │   ├── routes.ts          # REST API + internal agent-push endpoint
-│   │   │   ├── satellites.ts      # TLE cache + SGP4 propagation
-│   │   │   └── agentState.ts      # In-memory agent state + alert history
-│   │   ├── package.json
-│   │   └── tsconfig.json
+│   │   └── src/
+│   │       ├── index.ts           # Entry point + Socket.io
+│   │       ├── routes.ts          # REST API + internal push
+│   │       ├── satellites.ts      # TLE cache + SGP4
+│   │       └── agentState.ts      # Agent state + alerts
 │   │
 │   └── frontend/                  # React app (Vite)
-│       ├── src/
-│       │   ├── App.tsx            # Root component
-│       │   ├── components/
-│       │   │   ├── GlobeView.tsx   # react-globe.gl 3D visualization
-│       │   │   ├── RiskBanner.tsx  # GO/CAUTION/NO-GO banner
-│       │   │   ├── AlertPanel.tsx  # Alert history + LLM brief
-│       │   │   ├── SpaceWeatherBar.tsx  # Bottom HUD gauges
-│       │   │   └── SatelliteInfoTooltip.tsx  # Satellite detail card
-│       │   ├── hooks/
-│       │   │   ├── useSocket.ts    # Socket.io connection + reactive state
-│       │   │   └── useSatellites.ts # Satellite position state
-│       │   └── types/
-│       │       └── index.ts        # Frontend TypeScript interfaces
-│       ├── package.json
-│       └── vite.config.ts
+│       └── src/
+│           ├── App.tsx            # Root component
+│           ├── components/        # UI components
+│           ├── hooks/             # Socket.io + satellite hooks
+│           └── types/             # Frontend types
 │
-├── docs/                          # Project documentation
-├── .env                           # Shared env vars (not committed)
-├── .github/workflows/lint.yml     # CI: lint + format check
+├── docs/                          # Documentation
+├── .env                           # Environment variables (not committed)
 ├── package.json                   # Workspace root
-├── tsconfig.json                  # Root TypeScript config
-├── eslint.config.mjs              # ESLint config
-└── .prettierrc                    # Prettier config
+└── .github/workflows/lint.yml     # CI pipeline
 ```
+
+---
 
 ## Workflow
 
 ### Branch Strategy
-- **Main branch**: `main` — always deployable
-- **Feature branches**: `feature/short-description`
-- **Bug fix branches**: `fix/short-description`
-- **PR required**: Recommended
-- **Review required**: Not enforced for MVP
 
-### Before Submitting a PR
-```bash
-npm run lint && npm run format:check
-```
+| Branch Type | Pattern | Purpose |
+|-------------|---------|---------|
+| Main | `main` | Always deployable |
+| Feature | `feature/short-description` | New functionality |
+| Bug fix | `fix/short-description` | Bug fixes |
 
 ### Commit Message Format
-Conventional Commits — `type(scope): description`
 
-Examples:
+Conventional Commits: `type(scope): description`
+
 ```
 feat(agent/pollers): add SWPC X-ray flux poller
 feat(gateway/satellites): fetch and propagate TLEs from CelesTrak
@@ -149,37 +153,77 @@ fix(agent/risk-engine): correct compound scoring for concurrent flare and storm
 docs(api): document gateway and agent endpoints
 ```
 
+### Before Submitting a PR
+
+```bash
+npm run lint && npm run format:check
+```
+
+---
+
 ## Debugging
 
-### Common Issues
+### Common Issues & Solutions
 
 #### Agent fails to push to gateway
-The agent pushes to `GATEWAY_URL/internal/agent-push`. If the gateway isn't running, you'll see `[Push] Gateway push failed` logs. Start the gateway first, or accept that pushes will retry on the next evaluation cycle.
+**Symptom:** `[Push] Gateway push failed` in agent logs
+**Cause:** Gateway isn't running, or `INTERNAL_SECRET` mismatch
+**Fix:** Start the gateway first. Verify both services share the same `INTERNAL_SECRET` in `.env`.
 
 #### CORS errors in browser console
-CelesTrak and other external APIs block browser requests. All external API calls must go through the backend pollers in the agent service. If you see CORS errors, you're likely calling an external API directly from the frontend.
+**Symptom:** Browser blocks requests to external APIs
+**Cause:** External APIs (CelesTrak, SWPC) don't send CORS headers
+**Fix:** All external API calls must go through backend pollers, never from React components. If you see CORS errors, check for direct browser-side fetch calls.
 
 #### NASA API returning 403 or rate limit errors
-The `DEMO_KEY` only allows 30 requests/hour. Register a free key at api.nasa.gov for 1,000 requests/hour. Set it in `.env` as `NASA_API_KEY`.
+**Symptom:** Pollers log 403 or 429 responses
+**Cause:** Using `DEMO_KEY` (30 req/hour limit)
+**Fix:** Register a free key at api.nasa.gov (1,000 req/hour). Set `NASA_API_KEY` in `.env`.
 
 #### No LLM briefs generated
-Without `ANTHROPIC_API_KEY` in `.env`, the agent uses deterministic fallback briefs. Set the key to enable Claude-generated mission briefs.
+**Symptom:** Brief endpoint returns fallback brief with `confidence: 0.5`
+**Cause:** `ANTHROPIC_API_KEY` not set in `.env`
+**Fix:** Add your Claude API key to `.env`. Without it, deterministic fallback briefs are used (by design).
 
 #### Globe not rendering / black screen
-Ensure `three` is installed as a peer dependency of react-globe.gl: `npm install three`.
+**Symptom:** Blank or black area where globe should be
+**Cause:** `three` not installed as peer dependency
+**Fix:** `npm install three` in the frontend package.
 
 #### Socket.io not connecting
-Check that the gateway is running on the expected port (default 3001) and that `VITE_GATEWAY_URL` in the frontend matches.
+**Symptom:** Frontend shows stale data, no real-time updates
+**Cause:** Gateway not running on expected port, or `VITE_GATEWAY_URL` mismatch
+**Fix:** Verify gateway is on port 3001 and `VITE_GATEWAY_URL=http://localhost:3001` in `.env`.
 
-### Debug Tools
-- Backend: Check console logs — all pollers, risk engine, and push operations log their status
-- Frontend: React DevTools + browser Network tab to inspect Socket.io frames
-- Agent API: `curl http://localhost:3002/health` for uptime and poll timestamps
-- Agent data: `curl http://localhost:3002/data/swpc-xray` for raw cached data
-- Gateway API: `curl http://localhost:3001/api/status` for full system state
-- Gateway satellites: `curl http://localhost:3001/api/satellites` for satellite positions
+#### Environment variables are empty
+**Symptom:** Services start but API calls fail silently
+**Cause:** dotenv loads from `../../.env` relative to each package's src directory
+**Fix:** Always run services from their package directory (`cd packages/agent && npm run dev`). Check the `dotenv.config({ path: '../../.env' })` call.
+
+### Debug Endpoints
+
+| Endpoint | What It Shows |
+|----------|--------------|
+| `GET :3002/health` | Agent uptime, last poll timestamps, cache stats |
+| `GET :3002/data/swpc-xray` | Raw cached SWPC X-ray data |
+| `GET :3002/status` | Current risk score and breakdown |
+| `GET :3001/api/status` | Full system state |
+| `GET :3001/api/satellites` | All satellite positions |
+| `GET :3001/api/agent/health` | Agent health (proxied) |
+
+### Tools
+
+- **Backend:** Console logs with `[Module]` prefixes (`[SWPC]`, `[RiskEngine]`, `[LLM]`, etc.)
+- **Frontend:** React DevTools + browser Network tab for Socket.io frames
+- **API testing:** curl or any REST client
+
+---
 
 ## IDE Setup
-- **Recommended IDE**: VSCode
-- **Recommended extensions**: ESLint, Prettier, ES7+ React snippets
-- **Settings**: Format on save enabled
+
+| Setting | Recommendation |
+|---------|---------------|
+| **IDE** | VSCode |
+| **Extensions** | ESLint, Prettier, ES7+ React snippets |
+| **Format on save** | Enabled |
+| **Default formatter** | Prettier |

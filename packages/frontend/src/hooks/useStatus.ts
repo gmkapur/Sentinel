@@ -17,11 +17,12 @@ export function useStatus(): { loading: boolean; error: string | null } {
                     initializeFromStatus(data);
                     setLoading(false);
                 }
-            }
-            catch (err) {
+            } catch (err) {
                 if (!cancelled) {
                     setError(
-                        err instanceof Error ? err.message : 'Failed to fetch status'
+                        err instanceof Error
+                            ? err.message
+                            : 'Failed to fetch status',
                     );
                     setLoading(false);
                 }

@@ -1,6 +1,13 @@
 # Per-Satellite Risk — Implementation Guide
 
-This document is the step-by-step implementation plan for per-satellite risk scoring as designed in [PER_SATELLITE_RISK.md](PER_SATELLITE_RISK.md). It specifies every file to create or modify, the exact code changes, integration points, and testing approach.
+| Field | Value |
+|-------|-------|
+| **Type** | Step-by-step implementation plan |
+| **Status** | Ready for Implementation |
+| **Design doc** | [`PER_SATELLITE_RISK.md`](PER_SATELLITE_RISK.md) |
+| **Phases** | 11 phases covering types, scoring, API, frontend, and testing |
+
+This document specifies every file to create or modify, the exact code changes, integration points, and testing approach for per-satellite risk scoring.
 
 ---
 

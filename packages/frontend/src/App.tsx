@@ -14,14 +14,17 @@ function App() {
     if (loading) {
         return (
             <div className="h-screen w-screen bg-void flex flex-col items-center justify-center gap-4">
-                <Shield size={ 32 } className="text-accent glow-breathe" />
+                <Shield size={32} className="text-accent glow-breathe" />
                 <span className="font-semibold text-sm tracking-[0.2em] uppercase text-text-secondary">
                     Orbit Sentinel
                 </span>
                 <div className="w-48 h-0.5 bg-border-subtle rounded-full overflow-hidden">
                     <div
                         className="h-full w-12 bg-accent rounded-full"
-                        style={ { animation: 'loading-slide 1.5s ease-in-out infinite' } }
+                        style={{
+                            animation:
+                                'loading-slide 1.5s ease-in-out infinite',
+                        }}
                     />
                 </div>
                 <span className="font-mono text-xs text-text-muted">
@@ -34,15 +37,15 @@ function App() {
     if (error) {
         return (
             <div className="h-screen w-screen bg-void flex flex-col items-center justify-center gap-4">
-                <Shield size={ 32 } className="text-risk-critical" />
+                <Shield size={32} className="text-risk-critical" />
                 <span className="font-mono text-sm text-risk-critical">
                     CONNECTION FAILED
                 </span>
                 <span className="text-text-muted text-xs max-w-sm text-center">
-                    { error }
+                    {error}
                 </span>
                 <button
-                    onClick={ () => window.location.reload() }
+                    onClick={() => window.location.reload()}
                     className="mt-2 px-4 py-1.5 rounded border border-accent/30 text-accent text-xs font-mono hover:bg-accent/10 transition-colors"
                 >
                     Retry

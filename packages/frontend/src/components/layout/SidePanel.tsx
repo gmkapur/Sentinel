@@ -28,42 +28,42 @@ export function SidePanel({ className = '' }: SidePanelProps) {
 
     return (
         <aside
-            className={ `bg-base border-r border-border-subtle flex flex-col overflow-hidden ${className}` }
+            className={`bg-base border-r border-border-subtle flex flex-col overflow-hidden ${className}`}
         >
             {/* Tab bar */}
             <div className="flex border-b border-border-subtle shrink-0">
-                { tabs.map((tab) => (
+                {tabs.map((tab) => (
                     <button
-                        key={ tab.id }
-                        onClick={ () => setActiveTab(tab.id) }
-                        className={ `flex-1 py-2 font-mono text-[10px] uppercase tracking-[0.1em] transition-colors ${
+                        key={tab.id}
+                        onClick={() => setActiveTab(tab.id)}
+                        className={`flex-1 py-2 font-mono text-[10px] uppercase tracking-[0.1em] transition-colors ${
                             activeTab === tab.id
                                 ? 'text-accent border-b-2 border-accent'
                                 : 'text-text-muted hover:text-text-secondary'
-                        }` }
+                        }`}
                     >
-                        { tab.label }
+                        {tab.label}
                     </button>
-                )) }
+                ))}
             </div>
 
             {/* Tab content */}
             <div className="flex-1 overflow-y-auto p-3 space-y-3 min-h-0">
-                { activeTab === 'mission' && (
+                {activeTab === 'mission' && (
                     <>
                         <MissionBriefCard />
                         <RiskBreakdownChart />
                         <AlertFeed />
                     </>
-                ) }
+                )}
 
-                { activeTab === 'satellites' && (
-                    <SatelliteList onSelectSatellite={ handleSelectSatellite } />
-                ) }
+                {activeTab === 'satellites' && (
+                    <SatelliteList onSelectSatellite={handleSelectSatellite} />
+                )}
 
-                { activeTab === 'watchlist' && (
-                    <WatchlistPanel onSelectSatellite={ handleSelectSatellite } />
-                ) }
+                {activeTab === 'watchlist' && (
+                    <WatchlistPanel onSelectSatellite={handleSelectSatellite} />
+                )}
             </div>
         </aside>
     );

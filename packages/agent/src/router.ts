@@ -18,6 +18,22 @@ import { getCallHistory } from './alertConfig';
 
 const router = Router();
 
+// ---------------------------------------------------------------------------
+// GET /health — agent health check
+// ---------------------------------------------------------------------------
+router.get('/health', async (_req, res) => {
+    const statuses = await getPollStatuses();
+    const risk = await getLatestRisk();
+    res.json({
+        status: 'ok',
+        service: 'agent',
+        hasRiskData: risk !== null,
+        pollerCount: statuses.length,
+        pollersHealthy: statuses.filter((s) => s.lastSuccess).length,
+        timestamp: new Date().toISOString(),
+    });
+});
+
 const VALID_SOURCES = [
     'swpc-xray',
     'swpc-kp',
@@ -49,8 +65,7 @@ router.get('/health', async (_req, res) => {
             uptime: (Date.now() - startTime) / 1000,
             lastPolls,
         });
-    }
-    catch (_error) {
+    } catch (_error) {
         res.status(500).json({ error: 'Health check failed' });
     }
 });
@@ -72,8 +87,7 @@ router.get('/status', async (_req, res) => {
             return;
         }
         res.json(risk);
-    }
-    catch (_error) {
+    } catch (_error) {
         res.status(500).json({ error: 'Failed to retrieve risk status' });
     }
 });
@@ -90,8 +104,7 @@ router.get('/brief', async (_req, res) => {
             return;
         }
         res.json(brief);
-    }
-    catch (_error) {
+    } catch (_error) {
         res.status(500).json({ error: 'Failed to retrieve brief' });
     }
 });
@@ -114,14 +127,12 @@ router.post('/brief/generate', async (_req, res) => {
         let brief;
         if (process.env.ANTHROPIC_API_KEY) {
             brief = await generateBrief(risk, weather, flares, cmes, neos);
-        }
-        else {
+        } else {
             brief = generateFallbackBrief(risk);
         }
 
         res.json(brief);
-    }
-    catch (error) {
+    } catch (error) {
         const msg = error instanceof Error ? error.message : String(error);
         res.status(500).json({ error: `Brief generation failed: ${msg}` });
     }
@@ -149,20 +160,16 @@ router.get('/data/:source', async (req, res) => {
                 Date.now() - 30 * 24 * 60 * 60 * 1000,
             );
             data = await getRecentFlares(thirtyDaysAgo);
-        }
-        else if (source === 'donki-cme') {
+        } else if (source === 'donki-cme') {
             const thirtyDaysAgo = new Date(
                 Date.now() - 30 * 24 * 60 * 60 * 1000,
             );
             data = await getRecentCMEs(thirtyDaysAgo);
-        }
-        else if (source === 'neows') {
+        } else if (source === 'neows') {
             data = await getUpcomingNeos(7);
-        }
-        else if (source === 'eonet') {
+        } else if (source === 'eonet') {
             data = await getActiveEonetEvents();
-        }
-        else {
+        } else {
             data = await getLatestSpaceWeather(source);
         }
 
@@ -174,8 +181,7 @@ router.get('/data/:source', async (req, res) => {
         }
 
         res.json({ source, data });
-    }
-    catch (_error) {
+    } catch (_error) {
         res.status(500).json({ error: 'Failed to retrieve data' });
     }
 });
@@ -188,8 +194,7 @@ router.get('/space-weather', async (_req, res) => {
     try {
         const state = await buildSpaceWeatherState();
         res.json(state);
-    }
-    catch (_error) {
+    } catch (_error) {
         res.status(500).json({ error: 'Failed to build space weather state' });
     }
 });
