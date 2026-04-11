@@ -1,7 +1,7 @@
 # Sentinel
 
 ## What This Is
-Orbit Sentinel is a satellite mission risk analysis platform that fuses real-time space weather data, orbital tracking, and 3D visualization into a unified risk dashboard. It serves satellite operators, space enthusiasts, and mission planners by scoring compound radiation and geomagnetic threats to orbital assets.
+Orbit Sentinel is a real-time space situational awareness (SSA) dashboard that fuses publicly available space weather and orbital data into a compound risk scoring system with 3D globe visualization. The system ingests data from NOAA SWPC, NASA DONKI, CelesTrak, and NASA NeoWs to compute a 0–100 risk score using a multi-signal fusion engine with compound synergy rules (e.g., M5+ flare coinciding with LEO satellite on sunlit side). An LLM reasoning layer via Claude Sonnet generates structured GO/CAUTION/NO-GO mission briefs when risk levels change or score deltas exceed thresholds. It serves university CubeSat teams, independent satellite operators, space enthusiasts, and mission planners.
 
 ## Commands
 ```bash
@@ -58,6 +58,7 @@ npm run format:check
 
 ## Detailed Docs
 - Project mission & goals: `docs/PROJECT_OVERVIEW.md`
+- Project evaluation & scores: `docs/PROJECT_EVALUATION.md`
 - System architecture: `docs/ARCHITECTURE.md`
 - Tech stack & dependencies: `docs/TECH_STACK.md`
 - Development setup: `docs/DEVELOPMENT.md`
