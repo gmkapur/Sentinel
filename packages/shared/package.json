@@ -2,5 +2,11 @@
     "name": "@sentinel/shared",
     "version": "0.0.0",
     "private": true,
-    "main": "src/types.ts"
+    "main": "src/index.ts",
+    "dependencies": {
+        "pino": "^9.6.0"
+    },
+    "devDependencies": {
+        "pino-pretty": "^13.0.0"
+    }
 }

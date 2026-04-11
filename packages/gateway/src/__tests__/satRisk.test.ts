@@ -274,7 +274,8 @@ describe('computeSingleSatelliteRisk', () => {
             baseSat,
             quietWeather,
             subsolar,
-            false,
+            [],
+            [],
         );
         expect(result.riskLevel).toBe('LOW');
         expect(result.riskScore).toBeLessThan(20);
@@ -287,7 +288,8 @@ describe('computeSingleSatelliteRisk', () => {
             baseSat,
             stormWeather,
             subsolar,
-            true,
+            [],
+            [],
         );
         expect(['HIGH', 'CRITICAL']).toContain(result.riskLevel);
         expect(result.riskScore).toBeGreaterThan(40);
@@ -299,7 +301,8 @@ describe('computeSingleSatelliteRisk', () => {
             baseSat,
             quietWeather,
             { lat: 0, lng: 0 },
-            false,
+            [],
+            [],
         );
         expect(result.orbitRegime).toBe('LEO');
 
@@ -308,7 +311,8 @@ describe('computeSingleSatelliteRisk', () => {
             geoSat,
             quietWeather,
             { lat: 0, lng: 0 },
-            false,
+            [],
+            [],
         );
         expect(geoResult.orbitRegime).toBe('GEO');
     });

@@ -1,4 +1,5 @@
 import type { RiskState, RiskLevel, MissionBrief } from '@sentinel/shared';
+import { logger } from './logger';
 import { initiateOutboundCall } from './elevenLabsClient';
 import { generateFallbackBrief } from './llmBrief';
 import {
@@ -10,8 +11,10 @@ import {
     type CallState,
 } from './alertConfig';
 
+const log = logger.child({ component: 'PhoneAlert' });
+
 // ---------------------------------------------------------------------------
-// Decision logic — should we place a call?
+// Decision logic -- should we place a call?
 // ---------------------------------------------------------------------------
 
 const LEVEL_ORDER: Record<RiskLevel, number> = {
@@ -39,12 +42,12 @@ export function shouldCall(
         return { call: false, reason: 'level below threshold' };
     }
 
-    // Level didn't change — already alerted
+    // Level didn't change -- already alerted
     if (previous && current.level === previous.level) {
         return { call: false, reason: 'level unchanged' };
     }
 
-    // De-escalation — no call
+    // De-escalation -- no call
     if (previous && LEVEL_ORDER[current.level] < LEVEL_ORDER[previous.level]) {
         return { call: false, reason: 'de-escalation' };
     }
@@ -74,7 +77,7 @@ export function shouldCall(
 }
 
 // ---------------------------------------------------------------------------
-// Main entry point — called from runEvaluationCycle()
+// Main entry point -- called from runEvaluationCycle()
 // ---------------------------------------------------------------------------
 
 export async function checkAndAlert(
@@ -92,12 +95,12 @@ export async function checkAndAlert(
             config.enabled &&
             config.triggerLevels.includes(currentRisk.level)
         ) {
-            console.log(`[PhoneAlert] Skipped: ${decision.reason}`);
+            log.debug({ reason: decision.reason, riskLevel: currentRisk.level }, 'Phone alert skipped');
         }
         return;
     }
 
-    console.log(`[PhoneAlert] Triggering calls: ${decision.reason}`);
+    log.info({ reason: decision.reason, riskLevel: currentRisk.level, score: currentRisk.score }, 'Triggering phone alert calls');
 
     const useBrief = brief ?? generateFallbackBrief(currentRisk);
 

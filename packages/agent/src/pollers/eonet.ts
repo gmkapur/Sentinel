@@ -1,6 +1,9 @@
 import axios from 'axios';
 
+import { logger } from '../logger';
 import { upsertEonetEvents, updatePollStatus } from '../dataCache';
+
+const log = logger.child({ component: 'EONET' });
 
 const EONET_URL = 'https://eonet.gsfc.nasa.gov/api/v3/events';
 
@@ -14,7 +17,7 @@ interface EonetApiEvent {
 }
 
 export async function pollEONET(): Promise<void> {
-    console.log('[EONET] Polling open events...');
+    log.info('Polling open EONET events');
 
     try {
         const response = await axios.get(EONET_URL, {
@@ -44,10 +47,10 @@ export async function pollEONET(): Promise<void> {
 
         await upsertEonetEvents(normalized);
         await updatePollStatus('eonet', true);
-        console.log(`[EONET] OK — ${normalized.length} events`);
+        log.info({ count: normalized.length }, 'EONET events fetched');
     } catch (error) {
         const msg = error instanceof Error ? error.message : String(error);
-        console.error(`[EONET] FAILED: ${msg}`);
+        log.error({ err: msg }, 'EONET poll failed');
         await updatePollStatus('eonet', false, msg);
     }
 }

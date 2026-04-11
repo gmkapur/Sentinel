@@ -69,7 +69,7 @@ const eslintConfig = [
 
             // Best practices
             eqeqeq: ['error', 'always'],
-            'no-console': 'off',
+            'no-console': 'warn',
             'prefer-const': 'error',
             'no-with': 'error',
             'no-void': 'error',

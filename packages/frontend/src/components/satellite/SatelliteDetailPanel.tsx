@@ -19,7 +19,8 @@ const BREAKDOWN_LABELS: Record<string, string> = {
     geomagnetic: 'Geomagnetic',
     radiation: 'Radiation',
     solarWind: 'Solar Wind',
-    neo: 'NEO',
+    neo: 'NEO Proximity',
+    conjunction: 'Conjunction',
     compound: 'Compound',
 };
 
@@ -28,7 +29,8 @@ const BREAKDOWN_MAX: Record<string, number> = {
     geomagnetic: 45,
     radiation: 35,
     solarWind: 15,
-    neo: 5,
+    neo: 30,
+    conjunction: 30,
     compound: 45,
 };
 
@@ -244,6 +246,52 @@ export function SatelliteDetailPanel({ satellite, onClose }: Props) {
                                 {breakdown.scoring.bzMultiplier}
                             </div>
                         )}
+                    </div>
+                )}
+
+                {/* Conjunctions */}
+                {satellite.conjunctions && satellite.conjunctions.length > 0 && (
+                    <div className="mb-3">
+                        <div className="font-sans text-[10px] uppercase tracking-[0.1em] text-text-muted font-medium mb-1">
+                            Conjunctions
+                        </div>
+                        <ul className="space-y-1">
+                            {satellite.conjunctions.map((c) => {
+                                const otherName =
+                                    c.sat1Id === satellite.id
+                                        ? c.sat2Name
+                                        : c.sat1Name;
+                                const sevColor =
+                                    c.severity === 'CRITICAL'
+                                        ? 'text-risk-critical'
+                                        : c.severity === 'WARNING'
+                                          ? 'text-risk-high'
+                                          : 'text-yellow-400';
+                                return (
+                                    <li
+                                        key={c.id}
+                                        className="font-mono text-[11px] flex items-start gap-1.5"
+                                    >
+                                        <span
+                                            className={`mt-0.5 shrink-0 ${sevColor}`}
+                                        >
+                                            &bull;
+                                        </span>
+                                        <span className="text-text-secondary">
+                                            {otherName}{' '}
+                                            <span className={sevColor}>
+                                                {c.distanceKm.toFixed(1)} km
+                                            </span>
+                                            {c.isIntraConstellation && (
+                                                <span className="text-text-muted ml-1">
+                                                    (same group)
+                                                </span>
+                                            )}
+                                        </span>
+                                    </li>
+                                );
+                            })}
+                        </ul>
                     </div>
                 )}
 

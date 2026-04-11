@@ -7,6 +7,7 @@ import type {
     MissionBrief,
     SatPosition,
     AlertRecord,
+    ConjunctionEvent,
 } from '@sentinel/shared/src/types';
 
 interface ConnectionState {
@@ -21,6 +22,7 @@ interface MissionStore {
     satellites: SatPosition[];
     satelliteCount: number;
     alerts: AlertRecord[];
+    conjunctions: ConjunctionEvent[];
     connection: ConnectionState;
 
     setRisk: (risk: RiskState) => void;
@@ -30,6 +32,7 @@ interface MissionStore {
     setSatelliteCount: (count: number) => void;
     addAlert: (alert: AlertRecord) => void;
     setAlerts: (alerts: AlertRecord[]) => void;
+    setConjunctions: (conjunctions: ConjunctionEvent[]) => void;
     setConnected: (connected: boolean) => void;
     setLastUpdate: (timestamp: string) => void;
     initializeFromStatus: (data: {
@@ -48,6 +51,7 @@ export const useMissionStore = create<MissionStore>((set) => ({
     satellites: [],
     satelliteCount: 0,
     alerts: [],
+    conjunctions: [],
     connection: { connected: false, lastUpdate: null },
 
     setRisk: (risk) => set({ risk }),
@@ -60,6 +64,7 @@ export const useMissionStore = create<MissionStore>((set) => ({
             alerts: [alert, ...state.alerts].slice(0, 100),
         })),
     setAlerts: (alerts) => set({ alerts }),
+    setConjunctions: (conjunctions) => set({ conjunctions }),
     setConnected: (connected) =>
         set((state) => ({
             connection: { ...state.connection, connected },

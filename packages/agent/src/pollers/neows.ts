@@ -1,7 +1,10 @@
 import axios from 'axios';
 
 import type { NEOObject } from '@sentinel/shared';
+import { logger } from '../logger';
 import { upsertNeos, updatePollStatus } from '../dataCache';
+
+const log = logger.child({ component: 'NeoWs' });
 
 const NEOWS_BASE = 'https://api.nasa.gov/neo/rest/v1/feed';
 
@@ -14,7 +17,7 @@ function formatDate(date: Date): string {
 }
 
 export async function pollNeoWs(): Promise<void> {
-    console.log('[NeoWs] Polling near-Earth objects...');
+    log.info('Polling near-Earth objects');
 
     try {
         const now = new Date();
@@ -65,10 +68,10 @@ export async function pollNeoWs(): Promise<void> {
 
         await upsertNeos(neos);
         await updatePollStatus('neows', true);
-        console.log(`[NeoWs] OK — ${neos.length} objects`);
+        log.info({ count: neos.length }, 'NEOs fetched');
     } catch (error) {
         const msg = error instanceof Error ? error.message : String(error);
-        console.error(`[NeoWs] FAILED: ${msg}`);
+        log.error({ err: msg }, 'NeoWs poll failed');
         await updatePollStatus('neows', false, msg);
     }
 }

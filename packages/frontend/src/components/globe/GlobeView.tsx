@@ -9,12 +9,19 @@ import {
 import { EARTH_RADIUS_KM } from '../../utils/constants';
 import { SatelliteTooltip } from './SatelliteTooltip';
 import { SatelliteDetailPanel } from '../satellite/SatelliteDetailPanel';
-import type { SatPosition } from '@sentinel/shared/src/types';
+import type { SatPosition, ConjunctionEvent } from '@sentinel/shared/src/types';
 
 type ColorMode = 'risk' | 'altitude';
 
+const CONJUNCTION_ARC_COLORS: Record<string, string> = {
+    CRITICAL: '#ef4444',
+    WARNING: '#f97316',
+    CLOSE_APPROACH: '#eab308',
+};
+
 export function GlobeView() {
     const satellites = useMissionStore((s) => s.satellites);
+    const conjunctions = useMissionStore((s) => s.conjunctions);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const globeRef = useRef<any>(null);
     const containerRef = useRef<HTMLDivElement>(null);
@@ -23,6 +30,7 @@ export function GlobeView() {
     const [hoveredSat, setHoveredSat] = useState<SatPosition | null>(null);
     const [selectedSat, setSelectedSat] = useState<SatPosition | null>(null);
     const [colorMode, setColorMode] = useState<ColorMode>('risk');
+    const [showConjunctions, setShowConjunctions] = useState(true);
 
     useEffect(() => {
         const el = containerRef.current;
@@ -102,6 +110,29 @@ export function GlobeView() {
         setSelectedSat(point as SatPosition);
     }, []);
 
+    // Conjunction arcs — only inter-constellation by default
+    const arcData = useMemo(() => {
+        if (!showConjunctions) return [];
+        return conjunctions.filter((c) => !c.isIntraConstellation);
+    }, [conjunctions, showConjunctions]);
+
+    const arcStartLat = useCallback((d: object) => (d as ConjunctionEvent).sat1Position.lat, []);
+    const arcStartLng = useCallback((d: object) => (d as ConjunctionEvent).sat1Position.lng, []);
+    const arcEndLat = useCallback((d: object) => (d as ConjunctionEvent).sat2Position.lat, []);
+    const arcEndLng = useCallback((d: object) => (d as ConjunctionEvent).sat2Position.lng, []);
+    const arcColor = useCallback(
+        (d: object) => CONJUNCTION_ARC_COLORS[(d as ConjunctionEvent).severity] ?? '#eab308',
+        [],
+    );
+    const arcAltitude = useCallback(() => 0.1, []);
+    const arcStroke = useCallback((d: object) => {
+        const severity = (d as ConjunctionEvent).severity;
+        return severity === 'CRITICAL' ? 1.5 : severity === 'WARNING' ? 1 : 0.5;
+    }, []);
+    const arcDashGap = useCallback((d: object) => {
+        return (d as ConjunctionEvent).severity === 'CRITICAL' ? 0 : 2;
+    }, []);
+
     const globeImageUrl = useMemo(
         () => 'https://unpkg.com/three-globe/example/img/earth-night.jpg',
         [],
@@ -153,6 +184,16 @@ export function GlobeView() {
                     pointsMerge={false}
                     onPointHover={handlePointHover}
                     onPointClick={handlePointClick}
+                    arcsData={arcData}
+                    arcStartLat={arcStartLat}
+                    arcStartLng={arcStartLng}
+                    arcEndLat={arcEndLat}
+                    arcEndLng={arcEndLng}
+                    arcColor={arcColor}
+                    arcAltitudeAutoScale={arcAltitude}
+                    arcStroke={arcStroke}
+                    arcDashGap={arcDashGap}
+                    arcDashAnimateTime={1500}
                     animateIn={false}
                 />
             )}
@@ -168,6 +209,21 @@ export function GlobeView() {
                     className="glass-panel px-2.5 py-1 font-mono text-[10px] uppercase tracking-wider text-text-secondary hover:text-accent transition-colors cursor-pointer"
                 >
                     {colorMode === 'risk' ? 'Risk' : 'Altitude'}
+                </button>
+                <button
+                    onClick={() => setShowConjunctions((v) => !v)}
+                    className={`glass-panel px-2.5 py-1 font-mono text-[10px] uppercase tracking-wider transition-colors cursor-pointer ${
+                        showConjunctions
+                            ? 'text-accent'
+                            : 'text-text-muted hover:text-text-secondary'
+                    }`}
+                >
+                    Conj {showConjunctions ? 'ON' : 'OFF'}
+                    {conjunctions.filter((c) => !c.isIntraConstellation).length > 0 && (
+                        <span className="ml-1 text-risk-high">
+                            ({conjunctions.filter((c) => !c.isIntraConstellation).length})
+                        </span>
+                    )}
                 </button>
                 <div className="flex items-center gap-2">
                     {legendItems.map((item) => (

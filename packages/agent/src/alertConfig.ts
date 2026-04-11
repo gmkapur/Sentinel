@@ -1,5 +1,9 @@
 import type { RiskLevel } from '@sentinel/shared';
 
+import { logger } from './logger';
+
+const log = logger.child({ component: 'AlertConfig' });
+
 // ---------------------------------------------------------------------------
 // Phone alert configuration
 // ---------------------------------------------------------------------------
@@ -92,4 +96,5 @@ export function addCallHistoryEntry(entry: CallHistoryEntry): void {
     if (callHistory.length > 100) {
         callHistory.splice(0, callHistory.length - 100);
     }
+    log.debug({ historySize: callHistory.length }, 'Call history entry added');
 }

@@ -9,7 +9,7 @@ import {
     scoreRadiation,
     scoreSolarWind,
     scoreImfBz,
-    scoreNeo,
+    scoreNeoGlobal,
     computeCompoundBonus,
 } from '../riskEngine';
 
@@ -266,16 +266,38 @@ describe('scoreImfBz', () => {
 });
 
 // ---------------------------------------------------------------------------
-// scoreNeo
+// scoreNeoGlobal
 // ---------------------------------------------------------------------------
 
-describe('scoreNeo', () => {
-    it('returns 0 when no PHA', () => {
-        expect(scoreNeo(false)).toBe(0);
+describe('scoreNeoGlobal', () => {
+    it('returns 0 when no NEOs', () => {
+        expect(scoreNeoGlobal([])).toBe(0);
     });
 
-    it('returns 5 when PHA detected', () => {
-        expect(scoreNeo(true)).toBe(5);
+    it('returns minimum 5 for any PHA', () => {
+        const pha = {
+            id: '1',
+            name: 'TestPHA',
+            estimatedDiameter: 100,
+            isPotentiallyHazardous: true,
+            closeApproachDate: '2026-04-12',
+            missDistanceKm: 5_000_000,
+            relativeVelocityKmS: 10,
+        };
+        expect(scoreNeoGlobal([pha])).toBeGreaterThanOrEqual(5);
+    });
+
+    it('returns higher score when NEO passes near LEO shell', () => {
+        const nearLeo = {
+            id: '2',
+            name: 'NearLEO',
+            estimatedDiameter: 100,
+            isPotentiallyHazardous: true,
+            closeApproachDate: '2026-04-12',
+            missDistanceKm: 6771, // ~400 km altitude (6371 + 400)
+            relativeVelocityKmS: 10,
+        };
+        expect(scoreNeoGlobal([nearLeo])).toBeGreaterThan(5);
     });
 });
 
@@ -328,7 +350,7 @@ describe('risk scoring scenarios', () => {
             scoreRadiation(0.1) +
             scoreSolarWind(350) +
             scoreImfBz(0) +
-            scoreNeo(false) +
+            scoreNeoGlobal([]) +
             computeCompoundBonus(null, 2, 0.1);
 
         expect(total).toBe(0);
@@ -342,7 +364,7 @@ describe('risk scoring scenarios', () => {
             scoreRadiation(0.5) +
             scoreSolarWind(400) +
             scoreImfBz(-3) +
-            scoreNeo(false) +
+            scoreNeoGlobal([]) +
             computeCompoundBonus('M5.2', 3, 0.5);
 
         // M5 flare = 25 + compound M5+ = 10 = 35
@@ -358,7 +380,7 @@ describe('risk scoring scenarios', () => {
             scoreRadiation(500) +
             scoreSolarWind(900) +
             scoreImfBz(-25) +
-            scoreNeo(false) +
+            scoreNeoGlobal([]) +
             computeCompoundBonus('X5.0', 9, 500);
 
         // X-class=40, Kp9=30, proton500=25, wind900=10, Bz-25=10, neo=0

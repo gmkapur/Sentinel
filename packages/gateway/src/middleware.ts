@@ -1,6 +1,7 @@
 import type { Request, Response, NextFunction } from 'express';
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
+import type { Logger } from '@sentinel/shared';
 import type { Env } from './env';
 
 // ---------------------------------------------------------------------------
@@ -76,45 +77,62 @@ export function requireInternalSecret(env: Env) {
 // Centralized error handler — catches unhandled route errors
 // ---------------------------------------------------------------------------
 
-export function errorHandler(
-    err: Error,
-    _req: Request,
-    res: Response,
-    _next: NextFunction,
-): void {
-    console.error(`[Error] Unhandled: ${err.message}`);
+export function createErrorHandler(log: Logger) {
+    const errLog = log.child({ component: 'Error' });
 
-    const status = (err as Error & { status?: number }).status ?? 500;
-    res.status(status).json({
-        error:
-            process.env.NODE_ENV === 'production'
-                ? 'Internal server error'
-                : err.message,
-    });
+    return function errorHandler(
+        err: Error,
+        _req: Request,
+        res: Response,
+        _next: NextFunction,
+    ): void {
+        const status = (err as Error & { status?: number }).status ?? 500;
+        errLog.error({ err, statusCode: status }, 'Unhandled route error');
+        res.status(status).json({
+            error:
+                process.env.NODE_ENV === 'production'
+                    ? 'Internal server error'
+                    : err.message,
+        });
+    };
 }
 
 // ---------------------------------------------------------------------------
-// Request logger — lightweight structured logging
+// Request logger — structured HTTP request/response logging
 // ---------------------------------------------------------------------------
 
-export function requestLogger(
-    req: Request,
-    res: Response,
-    next: NextFunction,
-): void {
-    const start = Date.now();
+export function createRequestLogger(log: Logger) {
+    const httpLog = log.child({ component: 'HTTP' });
 
-    res.on('finish', () => {
-        const duration = Date.now() - start;
-        const level = res.statusCode >= 400 ? 'warn' : 'info';
-        const log = `[HTTP] ${req.method} ${req.path} ${res.statusCode} ${duration}ms`;
+    return function requestLogger(
+        req: Request,
+        res: Response,
+        next: NextFunction,
+    ): void {
+        const start = Date.now();
 
-        if (level === 'warn') {
-            console.warn(log);
-        } else if (duration > 1000) {
-            console.warn(`${log} (slow)`);
-        }
-    });
+        res.on('finish', () => {
+            const duration = Date.now() - start;
+            const logData = {
+                method: req.method,
+                path: req.path,
+                statusCode: res.statusCode,
+                duration,
+                contentLength: res.get('content-length'),
+                userAgent: req.get('user-agent'),
+            };
 
-    next();
+            if (res.statusCode >= 500) {
+                httpLog.error(logData, 'Request failed');
+            } else if (res.statusCode >= 400) {
+                httpLog.warn(logData, 'Client error');
+            } else if (duration > 1000) {
+                httpLog.warn({ ...logData, slow: true }, 'Slow request');
+            } else {
+                httpLog.info(logData, 'Request completed');
+            }
+        });
+
+        next();
+    };
 }

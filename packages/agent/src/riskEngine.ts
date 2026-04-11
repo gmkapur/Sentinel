@@ -1,14 +1,18 @@
-import type { RiskState, RiskLevel, RiskBreakdown } from '@sentinel/shared';
+import type { RiskState, RiskLevel, RiskBreakdown, NEOObject, FlarePathPrediction } from '@sentinel/shared';
 
+import { logger } from './logger';
 import {
     buildSpaceWeatherState,
     getRecentFlares,
     getUpcomingNeos,
+    getActiveFlarePathPredictions,
     saveRiskAssessment,
 } from './dataCache';
 
+const log = logger.child({ component: 'RiskEngine' });
+
 // ---------------------------------------------------------------------------
-// Score → Level mapping
+// Score -> Level mapping
 // ---------------------------------------------------------------------------
 
 export function scoreToLevel(score: number): RiskLevel {
@@ -89,8 +93,76 @@ export function scoreImfBz(bz: number | null): number {
     return 0;
 }
 
-export function scoreNeo(hasPHA: boolean): number {
-    return hasPHA ? 5 : 0;
+// ---------------------------------------------------------------------------
+// NEO proximity scoring — global (worst-case across orbital shells)
+// ---------------------------------------------------------------------------
+
+const EARTH_RADIUS_KM = 6371;
+
+const REFERENCE_SHELLS = [
+    { regime: 'LEO', radius: EARTH_RADIUS_KM + 400, margin: 500 },
+    { regime: 'MEO', radius: EARTH_RADIUS_KM + 20000, margin: 2000 },
+    { regime: 'GEO', radius: EARTH_RADIUS_KM + 35786, margin: 1000 },
+];
+
+export function scoreNeoGlobal(neos: NEOObject[]): number {
+    let maxScore = 0;
+    for (const neo of neos) {
+        if (neo.missDistanceKm <= 0) continue;
+        for (const shell of REFERENCE_SHELLS) {
+            const delta = Math.abs(neo.missDistanceKm - shell.radius);
+            if (delta < shell.margin * 0.1) {
+                maxScore = Math.max(maxScore, neo.isPotentiallyHazardous ? 20 : 10);
+            } else if (delta < shell.margin) {
+                maxScore = Math.max(maxScore, neo.isPotentiallyHazardous ? 10 : 5);
+            }
+        }
+        // Preserve existing minimum for any PHA
+        if (neo.isPotentiallyHazardous && maxScore < 5) {
+            maxScore = 5;
+        }
+    }
+    return Math.min(maxScore, 25);
+}
+
+// ---------------------------------------------------------------------------
+// CME Path scoring — uses flare path predictions
+// ---------------------------------------------------------------------------
+
+export function scoreCMEPath(predictions: FlarePathPrediction[]): number {
+    if (predictions.length === 0) return 0;
+
+    const earthDirected = predictions.filter((p) => p.isEarthDirected);
+    if (earthDirected.length === 0) return 0;
+
+    let maxScore = 0;
+
+    for (const pred of earthDirected) {
+        let score = 0;
+
+        // Base score from speed
+        if (pred.coneSpeedKmS >= 2000) score = 20;
+        else if (pred.coneSpeedKmS >= 1500) score = 15;
+        else if (pred.coneSpeedKmS >= 1000) score = 10;
+        else score = 5;
+
+        // Earth impact probability multiplier
+        score = Math.round(score * pred.earthImpactProbability);
+
+        // Imminence bonus
+        const hoursUntilArrival =
+            (new Date(pred.estimatedArrivalTime).getTime() - Date.now()) /
+            3_600_000;
+        if (hoursUntilArrival > 0 && hoursUntilArrival <= 6) {
+            score += 10;
+        } else if (hoursUntilArrival > 0 && hoursUntilArrival <= 24) {
+            score += 5;
+        }
+
+        maxScore = Math.max(maxScore, score);
+    }
+
+    return maxScore;
 }
 
 // ---------------------------------------------------------------------------
@@ -101,24 +173,57 @@ export function computeCompoundBonus(
     xrayClass: string | null,
     kp: number | null,
     protonFlux: number | null,
+    predictions: FlarePathPrediction[] = [],
 ): number {
     let bonus = 0;
 
     const m5Plus = isM5Plus(xrayClass);
 
-    // M5+ flare AND Kp ≥ 5 — CME-driven storm confirmation
+    // M5+ flare AND Kp >= 5 -- CME-driven storm confirmation
     if (m5Plus && kp !== null && kp >= 5) {
         bonus += 15;
     }
 
-    // Kp ≥ 7 AND proton flux ≥ 100 — severe radiation + atmospheric drag
+    // Kp >= 7 AND proton flux >= 100 -- severe radiation + atmospheric drag
     if (kp !== null && kp >= 7 && protonFlux !== null && protonFlux >= 100) {
         bonus += 20;
     }
 
-    // M5+ flare active — LEO sunlit radiation exposure window
+    // M5+ flare active -- LEO sunlit radiation exposure window
     if (m5Plus) {
         bonus += 10;
+    }
+
+    // CME path synergy rules
+    if (predictions.length > 0) {
+        const earthDirected = predictions.filter((p) => p.isEarthDirected);
+
+        // CME Earth-directed + M5+ flare -> +20
+        if (earthDirected.length > 0 && m5Plus) {
+            bonus += 20;
+        }
+
+        // CME arrival imminent (<=6h) + Kp rising (>=4) -> +15
+        const imminent = earthDirected.some((p) => {
+            const hoursUntil =
+                (new Date(p.estimatedArrivalTime).getTime() - Date.now()) /
+                3_600_000;
+            return hoursUntil > 0 && hoursUntil <= 6;
+        });
+        if (imminent && kp !== null && kp >= 4) {
+            bonus += 15;
+        }
+
+        // Multiple Earth-directed CMEs within 24h -> +25
+        const within24h = earthDirected.filter((p) => {
+            const hoursUntil =
+                (new Date(p.estimatedArrivalTime).getTime() - Date.now()) /
+                3_600_000;
+            return hoursUntil > 0 && hoursUntil <= 24;
+        });
+        if (within24h.length >= 2) {
+            bonus += 25;
+        }
     }
 
     return bonus;
@@ -131,9 +236,11 @@ export function computeCompoundBonus(
 export async function evaluate(): Promise<RiskState> {
     const weather = await buildSpaceWeatherState();
 
-    // Check for PHAs in the next 7 days
+    // Check for NEOs in the next 7 days
     const neos = await getUpcomingNeos(7);
-    const hasPHA = neos.some((n) => n.isPotentiallyHazardous);
+
+    // Get active flare path predictions
+    const predictions = await getActiveFlarePathPredictions();
 
     // Also check recent DONKI flares for active X-ray class (last 24h)
     const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
@@ -147,18 +254,20 @@ export async function evaluate(): Promise<RiskState> {
     const radiation = scoreRadiation(weather.protonFlux);
     const solarWind = scoreSolarWind(weather.solarWindSpeed);
     const imfBz = scoreImfBz(weather.bz);
-    const neo = scoreNeo(hasPHA);
+    const neo = scoreNeoGlobal(neos);
+    const cmePath = scoreCMEPath(predictions);
 
-    // Compound synergy
+    // Compound synergy (now includes CME path synergy rules)
     const compound = computeCompoundBonus(
         activeFlareClass,
         weather.kpIndex,
         weather.protonFlux,
+        predictions,
     );
 
     // Total (capped at 100)
     const rawScore =
-        flare + geomagnetic + radiation + solarWind + imfBz + neo + compound;
+        flare + geomagnetic + radiation + solarWind + imfBz + neo + cmePath + compound;
     const score = Math.min(rawScore, 100);
     const level = scoreToLevel(score);
 
@@ -169,6 +278,7 @@ export async function evaluate(): Promise<RiskState> {
         solarWind,
         imfBz,
         neo,
+        cmePath,
         compound,
     };
 
@@ -182,9 +292,7 @@ export async function evaluate(): Promise<RiskState> {
     // Persist to database
     await saveRiskAssessment(riskState);
 
-    console.log(
-        `[RiskEngine] Score: ${score} (${level}) | Breakdown: F=${flare} G=${geomagnetic} R=${radiation} W=${solarWind} Bz=${imfBz} N=${neo} C=${compound}`,
-    );
+    log.info({ score, level, breakdown }, 'Risk evaluation complete');
 
     return riskState;
 }

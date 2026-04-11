@@ -17,6 +17,7 @@ model AgentSnapshot {
     flares       Json
     cmes         Json
     neos         Json
+    eonetEvents  Json     @default("[]")
     timestamp    DateTime @default(now())
 
     @@index([timestamp(sort: Desc)])
@@ -64,4 +65,26 @@ model SatelliteRiskAlert {
     @@index([noradId, timestamp(sort: Desc)])
     @@index([riskLevel, timestamp(sort: Desc)])
     @@map("satellite_risk_alerts")
+}
+
+model ConjunctionEvent {
+    id                   String   @id @default(uuid())
+    sat1NoradId          Int
+    sat1Name             String
+    sat2NoradId          Int
+    sat2Name             String
+    distanceKm           Float
+    severity             String
+    isIntraConstellation Boolean
+    sat1Regime           String
+    sat2Regime           String
+    sat1Position         Json
+    sat2Position         Json
+    timestamp            DateTime @default(now())
+
+    @@index([sat1NoradId, timestamp(sort: Desc)])
+    @@index([sat2NoradId, timestamp(sort: Desc)])
+    @@index([severity, timestamp(sort: Desc)])
+    @@index([timestamp(sort: Desc)])
+    @@map("conjunction_events")
 }

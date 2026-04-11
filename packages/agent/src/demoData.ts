@@ -1,5 +1,5 @@
 /**
- * Demo Mode — Injects fake high-risk space weather data into the agent cache
+ * Demo Mode -- Injects fake high-risk space weather data into the agent cache
  * to simulate a severe compound threat scenario for demonstration purposes.
  *
  * Scenario: X5.3 solar flare + Kp 8 geomagnetic storm + high proton flux
@@ -11,14 +11,18 @@
  * Enable via DEMO_MODE=true in .env
  */
 
-import type { DONKIFlare, DONKICME, NEOObject } from '@sentinel/shared';
+import type { DONKIFlare, DONKICME, NEOObject, FlarePathPrediction } from '@sentinel/shared';
 
+import { logger } from './logger';
 import {
     upsertSpaceWeather,
     upsertFlares,
     upsertCMEs,
     upsertNeos,
+    saveFlarePathPredictions,
 } from './dataCache';
+
+const log = logger.child({ component: 'Demo' });
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -37,7 +41,7 @@ function daysFromNow(d: number): string {
 // Fake SWPC data (matches real API response shapes)
 // ---------------------------------------------------------------------------
 
-/** X5.3 flare — flux of 5.3e-4 W/m² triggers X-class detection */
+/** X5.3 flare -- flux of 5.3e-4 W/m2 triggers X-class detection */
 function makeFakeXrayData(): unknown[] {
     return [
         // The data extractor takes the LAST element in the array
@@ -50,7 +54,7 @@ function makeFakeXrayData(): unknown[] {
     ];
 }
 
-/** Kp index 8 — severe geomagnetic storm (G4) */
+/** Kp index 8 -- severe geomagnetic storm (G4) */
 function makeFakeKpData(): unknown[] {
     return [
         ['time_tag', 'kp_index'],
@@ -59,7 +63,7 @@ function makeFakeKpData(): unknown[] {
     ];
 }
 
-/** Proton flux 150 pfu — S2 radiation storm */
+/** Proton flux 150 pfu -- S2 radiation storm */
 function makeFakeProtonData(): unknown[] {
     return [
         {
@@ -71,7 +75,7 @@ function makeFakeProtonData(): unknown[] {
     ];
 }
 
-/** Solar wind 780 km/s — very fast, enhanced magnetospheric compression */
+/** Solar wind 780 km/s -- very fast, enhanced magnetospheric compression */
 function makeFakeSolarWindData(): unknown[] {
     return [
         ['time_tag', 'speed'],
@@ -80,7 +84,7 @@ function makeFakeSolarWindData(): unknown[] {
     ];
 }
 
-/** IMF Bz -14 nT — strongly southward, amplifies geomagnetic effects by 1.2x */
+/** IMF Bz -14 nT -- strongly southward, amplifies geomagnetic effects by 1.2x */
 function makeFakeMagData(): unknown[] {
     return [
         ['time_tag', 'bt', 'bx_gsm', 'bz_gsm'],
@@ -90,7 +94,7 @@ function makeFakeMagData(): unknown[] {
 }
 
 // ---------------------------------------------------------------------------
-// Fake DONKI data — realistic flare & CME events
+// Fake DONKI data -- realistic flare & CME events
 // ---------------------------------------------------------------------------
 
 function makeFakeFlares(): DONKIFlare[] {
@@ -132,14 +136,14 @@ function makeFakeCMEs(): DONKICME[] {
 }
 
 // ---------------------------------------------------------------------------
-// Fake NEO — potentially hazardous asteroid close approach
+// Fake NEO -- potentially hazardous asteroid close approach
 // ---------------------------------------------------------------------------
 
 function makeFakeNeos(): NEOObject[] {
     return [
         {
             id: 'DEMO-NEO-001',
-            name: '(2026 DX3) — DEMO',
+            name: '(2026 DX3) -- DEMO',
             estimatedDiameter: 0.42, // 420 meters
             isPotentiallyHazardous: true,
             closeApproachDate: daysFromNow(3),
@@ -150,14 +154,132 @@ function makeFakeNeos(): NEOObject[] {
 }
 
 // ---------------------------------------------------------------------------
+// Fake Flare Path Predictions -- two Earth-directed CMEs from the X5.3 event
+// ---------------------------------------------------------------------------
+
+function hoursFromNow(h: number): string {
+    return new Date(Date.now() + h * 60 * 60 * 1000).toISOString();
+}
+
+function makeFakeFlarePathPredictions(): FlarePathPrediction[] {
+    const now = new Date().toISOString();
+    return [
+        {
+            id: 'FPP-DEMO-CME-001',
+            associatedCMEID: 'DEMO-CME-001',
+            analysis: {
+                time21_5: hoursAgo(2),
+                latitude: 12,
+                longitude: -18,
+                halfAngle: 42,
+                speed: 2100,
+                type: 'S',
+                isMostAccurate: true,
+                associatedCMEID: 'DEMO-CME-001',
+                note: 'Halo CME -- full Earth disk, high confidence direct hit',
+                catalog: 'M2M_CATALOG',
+            },
+            coneLatitude: 12,
+            coneLongitude: -18,
+            coneHalfAngle: 42,
+            coneSpeedKmS: 2100,
+            estimatedArrivalTime: hoursFromNow(14),
+            estimatedTransitHours: 16.5,
+            arrivalWindowStart: hoursFromNow(12),
+            arrivalWindowEnd: hoursFromNow(20),
+            earthDirectedness: 'DIRECT_HIT',
+            earthImpactProbability: 0.91,
+            isEarthDirected: true,
+            affectedSatellites: [
+                {
+                    noradId: 25544,
+                    name: 'ISS (ZARYA)',
+                    orbitRegime: 'LEO',
+                    impactProbability: 0.87,
+                    predictedPosition: { lat: 28.4, lng: -82.1, alt: 421 },
+                    isSunlit: true,
+                    isInSAA: false,
+                    riskContribution: 22,
+                    advisory: 'Enter safe mode — elevated radiation expected',
+                },
+                {
+                    noradId: 20580,
+                    name: 'HST',
+                    orbitRegime: 'LEO',
+                    impactProbability: 0.82,
+                    predictedPosition: { lat: 24.1, lng: 15.7, alt: 540 },
+                    isSunlit: true,
+                    isInSAA: false,
+                    riskContribution: 18,
+                    advisory: 'Shutter instruments during arrival window',
+                },
+                {
+                    noradId: 43013,
+                    name: 'NOAA-20',
+                    orbitRegime: 'LEO',
+                    impactProbability: 0.79,
+                    predictedPosition: { lat: -61.2, lng: 145.3, alt: 824 },
+                    isSunlit: false,
+                    isInSAA: true,
+                    riskContribution: 25,
+                    advisory: 'SAA crossing + CME arrival — consider safe mode',
+                },
+            ],
+            generatedAt: now,
+            confidence: 0.88,
+        },
+        {
+            id: 'FPP-DEMO-CME-002',
+            associatedCMEID: 'DEMO-CME-002',
+            analysis: {
+                time21_5: hoursAgo(11),
+                latitude: -8,
+                longitude: 22,
+                halfAngle: 28,
+                speed: 1400,
+                type: 'S',
+                isMostAccurate: true,
+                associatedCMEID: 'DEMO-CME-002',
+                note: 'Partial halo CME — glancing blow likely',
+                catalog: 'M2M_CATALOG',
+            },
+            coneLatitude: -8,
+            coneLongitude: 22,
+            coneHalfAngle: 28,
+            coneSpeedKmS: 1400,
+            estimatedArrivalTime: hoursFromNow(30),
+            estimatedTransitHours: 42,
+            arrivalWindowStart: hoursFromNow(26),
+            arrivalWindowEnd: hoursFromNow(38),
+            earthDirectedness: 'GLANCING',
+            earthImpactProbability: 0.48,
+            isEarthDirected: true,
+            affectedSatellites: [
+                {
+                    noradId: 25544,
+                    name: 'ISS (ZARYA)',
+                    orbitRegime: 'LEO',
+                    impactProbability: 0.41,
+                    predictedPosition: { lat: 51.6, lng: 60.2, alt: 421 },
+                    isSunlit: true,
+                    isInSAA: false,
+                    riskContribution: 8,
+                    advisory: 'Monitor — glancing CME arrival possible',
+                },
+            ],
+            generatedAt: now,
+            confidence: 0.61,
+        },
+    ];
+}
+
+// ---------------------------------------------------------------------------
 // Main injection function
 // ---------------------------------------------------------------------------
 
 export async function injectDemoData(): Promise<void> {
-    console.log('[DEMO] Injecting fake high-risk space weather data...');
-    console.log(
-        '[DEMO] Scenario: X5.3 flare + Kp 8 storm + 150 pfu protons + 780 km/s wind + Bz -14 nT',
-    );
+    log.info('Injecting fake high-risk space weather data');
+    log.info({ scenario: 'X5.3 flare + Kp 8 storm + 150 pfu protons + 780 km/s wind + Bz -14 nT' }, 'Demo scenario active');
 
     // Overlay fake SWPC readings (overwrites whatever the real pollers fetched)
     await Promise.all([
@@ -175,13 +297,10 @@ export async function injectDemoData(): Promise<void> {
         upsertNeos(makeFakeNeos()),
     ]);
 
-    console.log(
-        '[DEMO] Fake data injected — risk engine will compute CRITICAL scores',
-    );
-    console.log(
-        '[DEMO] Expected: Global score ~100 (CRITICAL), LEO sunlit satellites at HIGH/CRITICAL',
-    );
-    console.log(
-        '[DEMO] Compound bonuses: M5+/Kp≥5 (+15), Kp≥7/proton≥100 (+20), M5+/sunlit (+10)',
-    );
+    // Inject fake flare path predictions (bypasses flarePathPredictor which needs real CME analyses)
+    await saveFlarePathPredictions(makeFakeFlarePathPredictions());
+
+    log.info('Fake data injected, risk engine will compute CRITICAL scores');
+    log.debug('Expected: Global score ~100 (CRITICAL), LEO sunlit satellites at HIGH/CRITICAL');
+    log.debug('Expected compound bonuses: M5+/Kp>=5 (+15), Kp>=7/proton>=100 (+20), M5+/sunlit (+10)');
 }

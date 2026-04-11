@@ -1,6 +1,9 @@
 import axios from 'axios';
 
+import { logger } from '../logger';
 import { upsertSpaceWeather, updatePollStatus } from '../dataCache';
+
+const log = logger.child({ component: 'SWPC' });
 
 const SWPC_BASE = 'https://services.swpc.noaa.gov';
 
@@ -22,9 +25,9 @@ async function fetchAndStore(source: SwpcSource): Promise<void> {
 }
 
 export async function pollSWPC(): Promise<void> {
-    console.log('[SWPC] Polling all SWPC endpoints...');
-
     const sources = Object.keys(ENDPOINTS) as SwpcSource[];
+    log.info({ endpointCount: sources.length }, 'Polling all SWPC endpoints');
+
     const results = await Promise.allSettled(
         sources.map((s) => fetchAndStore(s)),
     );
@@ -33,13 +36,13 @@ export async function pollSWPC(): Promise<void> {
         const result = results[i];
         const source = sources[i];
         if (result.status === 'fulfilled') {
-            console.log(`[SWPC] ${source} — OK`);
+            log.info({ source }, 'SWPC endpoint polled successfully');
         } else {
             const errorMsg =
                 result.reason instanceof Error
                     ? result.reason.message
                     : String(result.reason);
-            console.error(`[SWPC] ${source} — FAILED: ${errorMsg}`);
+            log.error({ source, err: errorMsg }, 'SWPC endpoint poll failed');
             await updatePollStatus(source, false, errorMsg);
         }
     }

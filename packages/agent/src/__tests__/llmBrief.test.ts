@@ -18,6 +18,7 @@ function makeRisk(overrides: Partial<RiskState> = {}): RiskState {
             solarWind: 0,
             imfBz: 0,
             neo: 0,
+            cmePath: 0,
             compound: 0,
         },
         timestamp: new Date().toISOString(),
@@ -126,6 +127,7 @@ describe('generateFallbackBrief', () => {
                 solarWind: 0,
                 imfBz: 0,
                 neo: 0,
+                cmePath: 0,
                 compound: 0,
             },
         });
@@ -148,6 +150,7 @@ describe('generateFallbackBrief', () => {
                 solarWind: 0,
                 imfBz: 0,
                 neo: 0,
+                cmePath: 0,
                 compound: 10,
             },
         });
@@ -173,6 +176,7 @@ describe('generateFallbackBrief', () => {
                 solarWind: 0,
                 imfBz: 0,
                 neo: 0,
+                cmePath: 0,
                 compound: 0,
             },
         });

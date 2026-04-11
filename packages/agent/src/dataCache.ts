@@ -3,12 +3,19 @@ import type {
     MissionBrief,
     DONKIFlare,
     DONKICME,
+    CMEAnalysis,
+    FlarePathPrediction,
     NEOObject,
+    EonetEvent,
     SpaceWeatherState,
 } from '@sentinel/shared';
 
+import { logger } from './logger';
+
+const log = logger.child({ component: 'DataCache' });
+
 // ---------------------------------------------------------------------------
-// In-memory store — no database needed. Data repopulates from pollers on
+// In-memory store -- no database needed. Data repopulates from pollers on
 // every startup and is pushed to the gateway for persistence.
 // ---------------------------------------------------------------------------
 
@@ -17,16 +24,9 @@ let flares: DONKIFlare[] = [];
 let cmes: DONKICME[] = [];
 let neos: NEOObject[] = [];
 
-interface EonetEventInput {
-    eventId: string;
-    title: string;
-    category: string;
-    source: string;
-    link: string | null;
-    date: string;
-    coordinates: unknown;
-}
-let eonetEvents: EonetEventInput[] = [];
+let eonetEvents: EonetEvent[] = [];
+let cmeAnalyses: CMEAnalysis[] = [];
+let flarePathPredictions: FlarePathPrediction[] = [];
 
 const riskHistory: RiskState[] = []; // keep last 2
 let latestBrief: MissionBrief | null = null;
@@ -45,6 +45,7 @@ export async function upsertSpaceWeather(
     data: unknown,
 ): Promise<void> {
     spaceWeather.set(source, { data, timestamp: new Date() });
+    log.debug({ source }, 'Space weather data updated');
 }
 
 export async function getLatestSpaceWeather(
@@ -67,6 +68,7 @@ export async function upsertFlares(incoming: DONKIFlare[]): Promise<void> {
     // Prune older than 30 days
     const cutoff = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
     flares = [...byId.values()].filter((f) => new Date(f.peakTime) >= cutoff);
+    log.debug({ incoming: incoming.length, total: flares.length }, 'Flares upserted');
 }
 
 export async function getRecentFlares(since: Date): Promise<DONKIFlare[]> {
@@ -91,6 +93,7 @@ export async function upsertCMEs(incoming: DONKICME[]): Promise<void> {
     }
     const cutoff = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
     cmes = [...byId.values()].filter((c) => new Date(c.startTime) >= cutoff);
+    log.debug({ incoming: incoming.length, total: cmes.length }, 'CMEs upserted');
 }
 
 export async function getRecentCMEs(since: Date): Promise<DONKICME[]> {
@@ -115,6 +118,7 @@ export async function upsertNeos(incoming: NEOObject[]): Promise<void> {
         byId.set(n.id, n);
     }
     neos = [...byId.values()];
+    log.debug({ count: incoming.length }, 'NEOs upserted');
 }
 
 export async function getUpcomingNeos(
@@ -139,7 +143,7 @@ export async function getUpcomingNeos(
 // ---------------------------------------------------------------------------
 
 export async function upsertEonetEvents(
-    events: EonetEventInput[],
+    events: EonetEvent[],
 ): Promise<void> {
     if (events.length === 0) return;
 
@@ -151,10 +155,84 @@ export async function upsertEonetEvents(
     eonetEvents = [...byId.values()]
         .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
         .slice(0, 20);
+    log.debug({ count: events.length }, 'EONET events upserted');
 }
 
-export async function getActiveEonetEvents(): Promise<EonetEventInput[]> {
+export async function getActiveEonetEvents(): Promise<EonetEvent[]> {
     return eonetEvents;
+}
+
+// ---------------------------------------------------------------------------
+// CME Analyses
+// ---------------------------------------------------------------------------
+
+export async function upsertCMEAnalyses(incoming: CMEAnalysis[]): Promise<void> {
+    if (incoming.length === 0) return;
+
+    // Dedup by composite key: associatedCMEID + time21_5
+    const byKey = new Map(
+        cmeAnalyses.map((a) => [`${a.associatedCMEID}|${a.time21_5}`, a]),
+    );
+    for (const a of incoming) {
+        byKey.set(`${a.associatedCMEID}|${a.time21_5}`, a);
+    }
+    // Prune older than 30 days
+    const cutoff = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+    cmeAnalyses = [...byKey.values()].filter(
+        (a) => new Date(a.time21_5) >= cutoff,
+    );
+    log.debug({ incoming: incoming.length, total: cmeAnalyses.length }, 'CME analyses upserted');
+}
+
+export async function getRecentCMEAnalyses(since: Date): Promise<CMEAnalysis[]> {
+    return cmeAnalyses
+        .filter((a) => new Date(a.time21_5) >= since)
+        .sort(
+            (a, b) =>
+                new Date(b.time21_5).getTime() - new Date(a.time21_5).getTime(),
+        );
+}
+
+export async function getEarthDirectedCMEAnalyses(): Promise<CMEAnalysis[]> {
+    // Earth is at HEEQ longitude ~0. CMEs within halfAngle + 15° margin
+    // of longitude 0 are considered potentially Earth-directed.
+    return cmeAnalyses.filter((a) => {
+        const toRad = Math.PI / 180;
+        const angularSep =
+            Math.acos(
+                Math.max(
+                    -1,
+                    Math.min(
+                        1,
+                        Math.cos(Math.abs(a.latitude) * toRad) *
+                            Math.cos(Math.abs(a.longitude) * toRad),
+                    ),
+                ),
+            ) / toRad;
+        return angularSep <= a.halfAngle + 15;
+    });
+}
+
+// ---------------------------------------------------------------------------
+// Flare Path Predictions
+// ---------------------------------------------------------------------------
+
+export async function saveFlarePathPredictions(
+    predictions: FlarePathPrediction[],
+): Promise<void> {
+    flarePathPredictions = predictions;
+    log.debug({ count: predictions.length }, 'Flare path predictions saved');
+}
+
+export async function getFlarePathPredictions(): Promise<FlarePathPrediction[]> {
+    return flarePathPredictions;
+}
+
+export async function getActiveFlarePathPredictions(): Promise<FlarePathPrediction[]> {
+    const now = new Date();
+    return flarePathPredictions.filter(
+        (p) => new Date(p.arrivalWindowEnd) >= now,
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -167,6 +245,7 @@ export async function saveRiskAssessment(risk: RiskState): Promise<void> {
     if (riskHistory.length > 2) {
         riskHistory.splice(0, riskHistory.length - 2);
     }
+    log.debug({ score: risk.score, level: risk.level }, 'Risk assessment saved');
 }
 
 export async function getLatestRisk(): Promise<RiskState | null> {

@@ -11,18 +11,20 @@ import cors from 'cors';
 import { Server } from 'socket.io';
 
 import prisma, { disconnectDb } from './db';
-import { hydrateFromDb, getLatestState } from './agentState';
+import { hydrateFromDb, getLatestState, getFlarePathPredictions } from './agentState';
 import { createRouter } from './routes';
-import { refreshTles, startTleRefreshLoop, propagateAll } from './satellites';
+import { refreshTles, startTleRefreshLoop, propagateAll, propagateAllWithEci } from './satellites';
 import { computePerSatelliteRisk, getTopRiskSatellites } from './satRisk';
+import { detectConjunctions, setLatestConjunctions, getLatestConjunctions } from './conjunction';
 import {
     securityHeaders,
     apiRateLimit,
     requireApiKey,
     requireInternalSecret,
-    errorHandler,
-    requestLogger,
+    createErrorHandler,
+    createRequestLogger,
 } from './middleware';
+import { logger } from './logger';
 import { validateEnv } from './env';
 import type { SatPosition, SatRiskSummary, RiskLevel } from '@sentinel/shared';
 
@@ -43,9 +45,11 @@ const io = new Server(httpServer, {
 });
 
 const PORT = env.GATEWAY_PORT;
+const socketLog = logger.child({ component: 'Socket' });
+const satRiskLog = logger.child({ component: 'SatRisk' });
 
 app.use(securityHeaders);
-app.use(requestLogger);
+app.use(createRequestLogger(logger));
 app.use(cors());
 app.use(express.json({ limit: '1mb' }));
 app.use('/api/', apiRateLimit);
@@ -70,7 +74,7 @@ const router = createRouter({
     getTopRisk: () => getTopRisk(),
 });
 app.use(router);
-app.use(errorHandler);
+app.use(createErrorHandler(logger));
 
 // ---------------------------------------------------------------------------
 // Per-satellite risk enrichment cache
@@ -81,13 +85,23 @@ let latestTopRisk: SatRiskSummary[] = [];
 const prevSatLevels = new Map<number, RiskLevel>();
 
 function enrichAndBroadcast(): SatPosition[] {
-    const positions = propagateAll();
+    const eciPositions = propagateAllWithEci();
     const state = getLatestState();
 
+    // Detect conjunctions using ECI vectors
+    const conjResult = detectConjunctions(eciPositions);
+    setLatestConjunctions(conjResult.all);
+
+    // Strip ECI vectors for risk scoring
+    const positions = eciPositions.map(({ eciX, eciY, eciZ, group, ...pos }) => pos);
+
+    const predictions = getFlarePathPredictions();
     const enriched = computePerSatelliteRisk(
         positions,
         state.spaceWeather,
         state.neos,
+        conjResult.all,
+        predictions,
     );
 
     latestEnrichedPositions = enriched;
@@ -155,7 +169,39 @@ function enrichAndBroadcast(): SatPosition[] {
                 .catch((err: unknown) => {
                     const msg =
                         err instanceof Error ? err.message : String(err);
-                    console.error(`[SatRisk] Failed to persist alert: ${msg}`);
+                    satRiskLog.error({ err: msg, noradId: alert.noradId }, 'Failed to persist satellite risk alert');
+                });
+        }
+    }
+
+    // Broadcast conjunction data
+    if (conjResult.all.length > 0) {
+        io.emit('conjunction-update', conjResult.all);
+    }
+    if (conjResult.newAlerts.length > 0) {
+        io.emit('conjunction-alerts', conjResult.newAlerts);
+
+        // Persist new alert-worthy conjunctions to DB (fire-and-forget, capped)
+        for (const conj of conjResult.newAlerts.slice(0, 10)) {
+            prisma.conjunctionEvent
+                .create({
+                    data: {
+                        sat1NoradId: conj.sat1Id,
+                        sat1Name: conj.sat1Name,
+                        sat2NoradId: conj.sat2Id,
+                        sat2Name: conj.sat2Name,
+                        distanceKm: conj.distanceKm,
+                        severity: conj.severity,
+                        isIntraConstellation: conj.isIntraConstellation,
+                        sat1Regime: conj.sat1Regime,
+                        sat2Regime: conj.sat2Regime,
+                        sat1Position: conj.sat1Position,
+                        sat2Position: conj.sat2Position,
+                    },
+                })
+                .catch((err: unknown) => {
+                    const msg = err instanceof Error ? err.message : String(err);
+                    satRiskLog.error({ err: msg }, 'Failed to persist conjunction event');
                 });
         }
     }
@@ -176,7 +222,7 @@ export function getTopRisk(): SatRiskSummary[] {
 // ---------------------------------------------------------------------------
 
 io.on('connection', (socket) => {
-    console.log(`[Socket] Client connected: ${socket.id}`);
+    socketLog.info({ socketId: socket.id }, 'Client connected');
 
     if (latestEnrichedPositions.length > 0) {
         socket.emit('satellite-positions', latestEnrichedPositions);
@@ -184,8 +230,26 @@ io.on('connection', (socket) => {
         socket.emit('satellite-positions', propagateAll());
     }
 
+    // Send current EONET events to newly connected clients
+    const state = getLatestState();
+    if (state.eonetEvents.length > 0) {
+        socket.emit('eonet-events', state.eonetEvents);
+    }
+
+    // Send current conjunctions to newly connected clients
+    const conjs = getLatestConjunctions();
+    if (conjs.length > 0) {
+        socket.emit('conjunction-update', conjs);
+    }
+
+    // Send current flare path predictions to newly connected clients
+    const preds = getFlarePathPredictions();
+    if (preds.length > 0) {
+        socket.emit('flare-path-predictions', preds);
+    }
+
     socket.on('disconnect', () => {
-        console.log(`[Socket] Client disconnected: ${socket.id}`);
+        socketLog.info({ socketId: socket.id }, 'Client disconnected');
     });
 });
 
@@ -204,7 +268,7 @@ setInterval(() => {
 
 async function start(): Promise<void> {
     await prisma.$connect();
-    console.log('[DB] Connected to PostgreSQL');
+    logger.info({ component: 'DB' }, 'Connected to PostgreSQL');
 
     await hydrateFromDb();
 
@@ -216,7 +280,7 @@ async function start(): Promise<void> {
     startTleRefreshLoop();
 
     httpServer.listen(PORT, () => {
-        console.log(`[Gateway] Running on port ${PORT}`);
+        logger.info({ port: PORT }, 'Gateway server started');
     });
 }
 
@@ -225,7 +289,7 @@ async function start(): Promise<void> {
 // ---------------------------------------------------------------------------
 
 async function shutdown(signal: string): Promise<void> {
-    console.log(`[Gateway] ${signal} received — shutting down`);
+    logger.info({ signal }, 'Shutdown signal received');
     io.close();
     httpServer.close();
     await disconnectDb();
@@ -240,6 +304,6 @@ process.on('SIGINT', () => shutdown('SIGINT'));
 // ---------------------------------------------------------------------------
 
 start().catch((err) => {
-    console.error('[Gateway] Fatal startup error:', err);
+    logger.fatal({ err }, 'Fatal startup error');
     process.exit(1);
 });

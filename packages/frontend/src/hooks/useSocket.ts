@@ -6,6 +6,7 @@ import type {
     SpaceWeatherState,
     SatPosition,
     AlertRecord,
+    ConjunctionEvent,
 } from '@sentinel/shared/src/types';
 
 export function useSocket(): void {
@@ -18,6 +19,7 @@ export function useSocket(): void {
             addAlert,
             setSatellites,
             setWeather,
+            setConjunctions,
         } = useMissionStore.getState();
 
         socket.on('connect', () => {
@@ -43,6 +45,22 @@ export function useSocket(): void {
 
         socket.on('space-weather', (data: SpaceWeatherState) => {
             setWeather(data);
+        });
+
+        socket.on('conjunction-update', (data: ConjunctionEvent[]) => {
+            setConjunctions(data);
+        });
+
+        socket.on('conjunction-alerts', (alerts: ConjunctionEvent[]) => {
+            for (const conj of alerts) {
+                addAlert({
+                    id: `conj-${conj.id}`,
+                    level: conj.severity === 'CRITICAL' ? 'CRITICAL' : 'HIGH',
+                    score: 0,
+                    brief: `Conjunction: ${conj.sat1Name} ↔ ${conj.sat2Name} at ${conj.distanceKm.toFixed(1)} km (${conj.severity})`,
+                    timestamp: conj.timestamp,
+                });
+            }
         });
 
         socket.on(
@@ -79,6 +97,8 @@ export function useSocket(): void {
             socket.off('risk-alert');
             socket.off('satellite-positions');
             socket.off('space-weather');
+            socket.off('conjunction-update');
+            socket.off('conjunction-alerts');
             socket.off('satellite-risk-alerts');
             disconnectSocket();
         };

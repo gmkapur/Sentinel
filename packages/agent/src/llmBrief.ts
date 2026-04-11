@@ -10,12 +10,17 @@ import type {
     DONKICME,
     NEOObject,
     SatRiskSummary,
+    ConjunctionEvent,
+    FlarePathPrediction,
 } from '@sentinel/shared';
 
+import { logger } from './logger';
 import { saveMissionBrief } from './dataCache';
 
+const log = logger.child({ component: 'LLM' });
+
 // ---------------------------------------------------------------------------
-// Client initialization — reads ANTHROPIC_API_KEY from env automatically
+// Client initialization -- reads ANTHROPIC_API_KEY from env automatically
 // ---------------------------------------------------------------------------
 
 let client: Anthropic | null = null;
@@ -39,16 +44,16 @@ export function shouldGenerateBrief(
     previousRisk: RiskState | null,
     lastBriefAt: Date | null,
 ): boolean {
-    // No API key → always use fallback
+    // No API key -> always use fallback
     if (!process.env.ANTHROPIC_API_KEY) return false;
 
-    // No previous assessment → generate first brief
+    // No previous assessment -> generate first brief
     if (!previousRisk) return true;
 
     // Risk level changed
     if (currentRisk.level !== previousRisk.level) return true;
 
-    // Score delta ≥ 15
+    // Score delta >= 15
     if (Math.abs(currentRisk.score - previousRisk.score) >= 15) return true;
 
     // 30-minute heartbeat
@@ -66,11 +71,13 @@ export function shouldGenerateBrief(
 const SYSTEM_PROMPT = `You are a senior space weather analyst for satellite mission operations at a space situational awareness center. Given the current space weather data and risk assessment, generate a structured mission brief for satellite operators.
 
 Your analysis should consider:
-- Compound threats: simultaneous M5+ flares with Kp ≥ 5 indicate CME-driven storm confirmation
-- Kp ≥ 7 with high proton flux means severe radiation plus atmospheric drag risk for LEO assets
+- Compound threats: simultaneous M5+ flares with Kp >= 5 indicate CME-driven storm confirmation
+- Kp >= 7 with high proton flux means severe radiation plus atmospheric drag risk for LEO assets
 - Solar wind speed > 700 km/s combined with southward Bz (< -10 nT) amplifies geomagnetic disturbance
 - Potentially hazardous asteroids within 7 days warrant monitoring advisories
 - When per-satellite risk data is provided, include actionable guidance for the most at-risk assets (e.g., "ISS should delay EVA operations", "LEO CubeSats on sunlit side should enter safe mode during this flare window")
+- TLE-based conjunction warnings are proximity alerts, NOT collision predictions. SGP4 accuracy degrades to ~1 km over days. For WARNING/CRITICAL conjunctions, recommend monitoring or standby for avoidance maneuvers — do NOT declare imminent collision
+- Conjunctions during geomagnetic storms (Kp >= 5) are higher uncertainty due to atmospheric drag perturbations on LEO orbits
 
 Respond ONLY with valid JSON matching this exact schema (no markdown, no code fences):
 {
@@ -144,13 +151,11 @@ export async function generateBrief(
         };
 
         await saveMissionBrief(brief);
-        console.log(
-            `[LLM] Brief generated — ${brief.recommendation} (confidence: ${brief.confidence})`,
-        );
+        log.info({ recommendation: brief.recommendation, confidence: brief.confidence, isLlm: true }, 'LLM brief generated');
         return brief;
     } catch (error) {
         const msg = error instanceof Error ? error.message : String(error);
-        console.error(`[LLM] Claude API failed, using fallback: ${msg}`);
+        log.error({ err: msg }, 'Claude API failed, using fallback');
         return generateFallbackBrief(risk);
     }
 }
@@ -228,7 +233,7 @@ export function generateFallbackBrief(risk: RiskState): MissionBrief {
         isLlm: false,
     };
 
-    console.log(`[LLM] Fallback brief — ${brief.recommendation}`);
+    log.info({ recommendation: brief.recommendation, isLlm: false }, 'Fallback brief generated');
     return brief;
 }
 
@@ -259,6 +264,21 @@ async function fetchTopRiskSatellites(): Promise<SatRiskSummary[]> {
     }
 }
 
+async function fetchActiveConjunctions(): Promise<ConjunctionEvent[]> {
+    try {
+        const gatewayUrl = process.env.GATEWAY_URL || 'http://localhost:3001';
+        const res = await axios.get(
+            `${gatewayUrl}/internal/active-conjunctions`,
+            {
+                timeout: 5_000,
+            },
+        );
+        return res.data?.conjunctions ?? [];
+    } catch {
+        return [];
+    }
+}
+
 async function buildUserPrompt(
     risk: RiskState,
     weather: SpaceWeatherState,
@@ -266,7 +286,10 @@ async function buildUserPrompt(
     cmes: DONKICME[],
     neos: NEOObject[],
 ): Promise<string> {
-    const topSats = await fetchTopRiskSatellites();
+    const [topSats, conjunctions] = await Promise.all([
+        fetchTopRiskSatellites(),
+        fetchActiveConjunctions(),
+    ]);
 
     let satSection = '';
     if (topSats.length > 0) {
@@ -276,6 +299,16 @@ async function buildUserPrompt(
         }
         satSection +=
             '\nInclude satellite-specific guidance in your assessment where relevant.';
+    }
+
+    let conjSection = '';
+    if (conjunctions.length > 0) {
+        conjSection = '\n\nACTIVE CONJUNCTION WARNINGS (TLE-based proximity alerts, NOT collision predictions):\n';
+        for (const c of conjunctions.slice(0, 10)) {
+            conjSection += `  ${c.sat1Name} ↔ ${c.sat2Name} — ${c.distanceKm.toFixed(1)} km (${c.severity}, ${c.sat1Regime}/${c.sat2Regime})\n`;
+        }
+        conjSection +=
+            '\nNote: TLE accuracy is ~1 km for LEO. Include conjunction-specific guidance for WARNING/CRITICAL events.';
     }
 
     return `Current Space Weather Assessment — ${new Date().toISOString()}
@@ -328,7 +361,7 @@ NEAR-EARTH OBJECTS (next 7 days): ${
                   )
                   .join('; ')
             : 'None tracked'
-    }${satSection}
+    }${satSection}${conjSection}
 
 Generate your mission brief.`;
 }

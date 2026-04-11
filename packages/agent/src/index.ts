@@ -7,6 +7,7 @@ dotenv.config({ path: path.resolve(__dirname, '..', '..', '..', '.env') });
 import express from 'express';
 import cron from 'node-cron';
 
+import { logger } from './logger';
 import { validateEnv } from './env';
 import router from './router';
 
@@ -17,6 +18,7 @@ import router from './router';
 validateEnv();
 import { pollSWPC } from './pollers/swpc';
 import { pollDONKI } from './pollers/donki';
+import { pollCMEAnalysis } from './pollers/cmeAnalysis';
 import { pollNeoWs } from './pollers/neows';
 import { pollEONET } from './pollers/eonet';
 import { evaluate } from './riskEngine';
@@ -33,12 +35,21 @@ import {
     getRecentFlares,
     getRecentCMEs,
     getUpcomingNeos,
+    getActiveEonetEvents,
+    getEarthDirectedCMEAnalyses,
+    getFlarePathPredictions,
+    saveFlarePathPredictions,
     saveMissionBrief,
 } from './dataCache';
+import { generateFlarePathPredictions } from './flarePathPredictor';
 import { checkAndAlert } from './phoneAlert';
 import { injectDemoData } from './demoData';
 
 import type { AgentPushPayload } from '@sentinel/shared';
+
+const cycleLog = logger.child({ component: 'Cycle' });
+const initLog = logger.child({ component: 'Init' });
+const cronLog = logger.child({ component: 'Cron' });
 
 const DEMO_MODE = process.env.DEMO_MODE === 'true';
 
@@ -46,6 +57,20 @@ const app = express();
 const PORT = process.env.AGENT_PORT || 3002;
 
 app.use(express.json());
+
+const httpLog = logger.child({ component: 'HTTP' });
+app.use((req, res, next) => {
+    const start = Date.now();
+    res.on('finish', () => {
+        const duration = Date.now() - start;
+        const logData = { method: req.method, path: req.path, statusCode: res.statusCode, duration };
+        if (res.statusCode >= 500) httpLog.error(logData, 'Request failed');
+        else if (res.statusCode >= 400) httpLog.warn(logData, 'Client error');
+        else httpLog.info(logData, 'Request completed');
+    });
+    next();
+});
+
 app.use(router);
 
 // ---------------------------------------------------------------------------
@@ -54,15 +79,21 @@ app.use(router);
 
 async function runEvaluationCycle(): Promise<void> {
     try {
-        console.log('[Cycle] Starting risk evaluation cycle...');
+        cycleLog.info('Starting risk evaluation cycle');
 
         // 0. Inject demo data if enabled (overrides real SWPC readings)
         if (DEMO_MODE) {
             await injectDemoData();
         }
 
-        // 1. Evaluate risk
+        // 1. Evaluate risk (includes CME path scoring)
         const risk = await evaluate();
+
+        // 1b. Generate flare path predictions from CME analysis data
+        const earthDirectedCMEs = await getEarthDirectedCMEAnalyses();
+        const currentWeather = await buildSpaceWeatherState();
+        const predictions = await generateFlarePathPredictions(earthDirectedCMEs, currentWeather);
+        await saveFlarePathPredictions(predictions);
 
         // 2. Check if we should generate a new LLM brief
         const previousRisk = await getPreviousRisk();
@@ -95,10 +126,11 @@ async function runEvaluationCycle(): Promise<void> {
         // 4. Build push payload
         const weather = await buildSpaceWeatherState();
         const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
-        const [flares, cmes, neos] = await Promise.all([
+        const [flares, cmes, neos, eonetEvents] = await Promise.all([
             getRecentFlares(thirtyDaysAgo),
             getRecentCMEs(thirtyDaysAgo),
             getUpcomingNeos(7),
+            getActiveEonetEvents(),
         ]);
 
         const payload: AgentPushPayload = {
@@ -108,16 +140,18 @@ async function runEvaluationCycle(): Promise<void> {
             flares,
             cmes,
             neos,
+            eonetEvents,
+            flarePathPredictions: await getFlarePathPredictions(),
             timestamp: new Date().toISOString(),
         };
 
         // 5. Push to gateway
         await pushToGateway(payload);
 
-        console.log('[Cycle] Evaluation cycle complete');
+        cycleLog.info({ score: risk.score, level: risk.level }, 'Evaluation cycle complete');
     } catch (error) {
         const msg = error instanceof Error ? error.message : String(error);
-        console.error(`[Cycle] Evaluation cycle failed: ${msg}`);
+        cycleLog.error({ err: msg }, 'Evaluation cycle failed');
     }
 }
 
@@ -126,30 +160,27 @@ async function runEvaluationCycle(): Promise<void> {
 // ---------------------------------------------------------------------------
 
 async function initialFetch(): Promise<void> {
-    console.log('[Init] Running initial data fetch...');
+    initLog.info('Running initial data fetch');
 
     const results = await Promise.allSettled([
         pollSWPC(),
         pollDONKI(),
+        pollCMEAnalysis(),
         pollNeoWs(),
         pollEONET(),
     ]);
 
-    const labels = ['SWPC', 'DONKI', 'NeoWs', 'EONET'];
+    const labels = ['SWPC', 'DONKI', 'CMEAnalysis', 'NeoWs', 'EONET'];
     for (let i = 0; i < results.length; i++) {
         if (results[i].status === 'rejected') {
             const reason = (results[i] as PromiseRejectedResult).reason;
-            console.error(
-                `[Init] ${labels[i]} initial fetch failed: ${reason}`,
-            );
+            initLog.error({ source: labels[i], err: reason }, 'Initial fetch failed');
         }
     }
 
-    console.log('[Init] Initial fetch complete, running first evaluation...');
+    initLog.info('Initial fetch complete, running first evaluation');
     if (DEMO_MODE) {
-        console.log(
-            '[DEMO] Demo mode enabled — overlaying fake high-risk data',
-        );
+        initLog.info('Demo mode enabled, overlaying fake high-risk data');
     }
     await runEvaluationCycle();
 }
@@ -175,6 +206,13 @@ function scheduleCronJobs(): void {
         }),
     );
 
+    // CME Analysis: every 15 minutes (aligned with DONKI cadence)
+    cronJobs.push(
+        cron.schedule('*/15 * * * *', async () => {
+            await pollCMEAnalysis();
+        }),
+    );
+
     // EONET: every hour
     cronJobs.push(
         cron.schedule('0 * * * *', async () => {
@@ -196,7 +234,7 @@ function scheduleCronJobs(): void {
         }),
     );
 
-    console.log('[Cron] All jobs scheduled');
+    cronLog.info('All cron jobs scheduled');
 }
 
 // ---------------------------------------------------------------------------
@@ -204,7 +242,7 @@ function scheduleCronJobs(): void {
 // ---------------------------------------------------------------------------
 
 async function shutdown(signal: string): Promise<void> {
-    console.log(`\n[Shutdown] Received ${signal}, shutting down gracefully...`);
+    logger.info({ signal }, 'Shutdown signal received');
 
     for (const job of cronJobs) {
         job.stop();
@@ -222,10 +260,10 @@ process.on('SIGINT', () => shutdown('SIGINT'));
 
 async function main(): Promise<void> {
     app.listen(PORT, () => {
-        console.log(`[Agent] Service running on port ${PORT}`);
+        logger.info({ port: PORT }, 'Agent service started');
         scheduleCronJobs();
         // Fire-and-forget initial fetch — don't block server startup
-        initialFetch().catch((err) => console.error('[Init] Failed:', err));
+        initialFetch().catch((err) => initLog.fatal({ err }, 'Initial fetch failed'));
     });
 }
 

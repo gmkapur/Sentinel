@@ -5,6 +5,9 @@ export default defineConfig({
     test: {
         globals: true,
         environment: 'node',
+        env: {
+            LOG_LEVEL: 'silent',
+        },
         include: ['packages/*/src/**/*.test.ts'],
         coverage: {
             provider: 'v8',
@@ -22,7 +25,7 @@ export default defineConfig({
         alias: {
             '@sentinel/shared': path.resolve(
                 __dirname,
-                'packages/shared/src/types.ts',
+                'packages/shared/src/index.ts',
             ),
         },
     },

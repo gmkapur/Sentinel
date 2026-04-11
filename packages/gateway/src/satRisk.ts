@@ -6,6 +6,8 @@ import type {
     OrbitRegime,
     SatRiskBreakdown,
     SatRiskSummary,
+    ConjunctionEvent,
+    FlarePathPrediction,
 } from '@sentinel/shared';
 
 // ---------------------------------------------------------------------------
@@ -216,10 +218,143 @@ export function scoreSolarWind(
     return { score: 0, threat: null };
 }
 
-export function scoreNeo(hasPHA: boolean): ScoreResult {
-    return hasPHA
-        ? { score: 5, threat: 'PHA within 7-day window' }
-        : { score: 0, threat: null };
+// ---------------------------------------------------------------------------
+// NEO proximity scoring — distance-based (replaces flat scoreNeo)
+// ---------------------------------------------------------------------------
+
+const EARTH_RADIUS_KM = 6371;
+
+const NEO_REGIME_MARGINS: Record<OrbitRegime, number> = {
+    LEO: 500,
+    MEO: 2000,
+    GEO: 1000,
+    HEO: 5000,
+};
+
+export function scoreNeoProximity(
+    neos: NEOObject[],
+    satAltKm: number,
+    regime: OrbitRegime,
+): ScoreResult {
+    const satOrbitalRadius = EARTH_RADIUS_KM + satAltKm;
+    const margin = NEO_REGIME_MARGINS[regime];
+
+    let maxScore = 0;
+    let worstThreat: string | null = null;
+
+    for (const neo of neos) {
+        if (neo.missDistanceKm <= 0) continue;
+
+        const shellDelta = Math.abs(neo.missDistanceKm - satOrbitalRadius);
+        let score = 0;
+        let threat: string | null = null;
+
+        if (shellDelta < margin * 0.1) {
+            score = neo.isPotentiallyHazardous ? 25 : 15;
+            threat = `NEO ${neo.name} passes through ${regime} shell (${Math.round(shellDelta)} km from orbit)`;
+        } else if (shellDelta < margin * 0.5) {
+            score = neo.isPotentiallyHazardous ? 15 : 8;
+            threat = `NEO ${neo.name} near ${regime} shell (${Math.round(shellDelta)} km)`;
+        } else if (shellDelta < margin) {
+            score = neo.isPotentiallyHazardous ? 8 : 3;
+            threat = `NEO ${neo.name} in awareness zone (${Math.round(neo.missDistanceKm).toLocaleString()} km miss)`;
+        } else if (neo.isPotentiallyHazardous && neo.missDistanceKm < 7_500_000) {
+            score = 2;
+            threat = `PHA ${neo.name} approaching (${Math.round(neo.missDistanceKm).toLocaleString()} km)`;
+        }
+
+        // Velocity multiplier: faster NEOs are harder to avoid
+        if (score > 0 && neo.relativeVelocityKmS > 20) {
+            score = Math.round(score * 1.2);
+        }
+        // Size multiplier: larger NEOs are more dangerous
+        if (score > 0 && neo.estimatedDiameter > 500) {
+            score = Math.round(score * 1.3);
+        }
+
+        if (score > maxScore) {
+            maxScore = score;
+            worstThreat = threat;
+        }
+    }
+
+    return { score: Math.min(maxScore, 30), threat: worstThreat };
+}
+
+// ---------------------------------------------------------------------------
+// Conjunction scoring — uses results from conjunction.ts
+// ---------------------------------------------------------------------------
+
+export function scoreConjunction(
+    satId: number,
+    conjunctions: ConjunctionEvent[],
+): ScoreResult {
+    const relevant = conjunctions
+        .filter((c) => (c.sat1Id === satId || c.sat2Id === satId) && !c.isIntraConstellation)
+        .sort((a, b) => a.distanceKm - b.distanceKm);
+
+    if (relevant.length === 0) return { score: 0, threat: null };
+
+    const worst = relevant[0];
+    const otherName = worst.sat1Id === satId ? worst.sat2Name : worst.sat1Name;
+
+    let score: number;
+    switch (worst.severity) {
+        case 'CRITICAL':
+            score = 30;
+            break;
+        case 'WARNING':
+            score = 15;
+            break;
+        default:
+            score = 5;
+    }
+
+    return {
+        score,
+        threat: `Conjunction with ${otherName} at ${worst.distanceKm.toFixed(1)} km (${worst.severity})`,
+    };
+}
+
+// ---------------------------------------------------------------------------
+// CME impact scoring — uses flare path predictions
+// ---------------------------------------------------------------------------
+
+export function scoreCMEImpact(
+    noradId: number,
+    predictions: FlarePathPrediction[],
+): ScoreResult {
+    if (predictions.length === 0) return { score: 0, threat: null };
+
+    let maxScore = 0;
+    let worstThreat: string | null = null;
+
+    for (const pred of predictions) {
+        if (!pred.isEarthDirected) continue;
+
+        // Check if this satellite appears in the affected list
+        const impact = pred.affectedSatellites?.find(
+            (s) => s.noradId === noradId,
+        );
+
+        if (impact && impact.riskContribution > 0) {
+            const score = Math.min(impact.riskContribution, 30);
+
+            if (score > maxScore) {
+                maxScore = score;
+                const hoursUntil =
+                    (new Date(pred.estimatedArrivalTime).getTime() - Date.now()) /
+                    3_600_000;
+                const eta =
+                    hoursUntil > 0
+                        ? `ETA ${Math.round(hoursUntil)}h`
+                        : 'arrival imminent';
+                worstThreat = `CME ${pred.earthDirectedness} (${eta}, ${Math.round(impact.impactProbability * 100)}% impact prob)`;
+            }
+        }
+    }
+
+    return { score: maxScore, threat: worstThreat };
 }
 
 // ---------------------------------------------------------------------------
@@ -232,6 +367,9 @@ export function computeCompoundBonus(
     protonFlux: number | null,
     regime: OrbitRegime,
     sunlit: boolean,
+    hasWarningConjunction: boolean = false,
+    hasCMEImpact: boolean = false,
+    inSaa: boolean = false,
 ): ScoreResult {
     const threats: string[] = [];
     let bonus = 0;
@@ -258,6 +396,18 @@ export function computeCompoundBonus(
     if (isM5Plus && sunlit) {
         bonus += 10;
         threats.push('Direct radiation exposure window (sunlit)');
+    }
+
+    // Conjunction during geomagnetic storm — drag perturbations increase uncertainty
+    if (hasWarningConjunction && kpHigh) {
+        bonus += 10;
+        threats.push('Conjunction during geomagnetic storm (orbit prediction uncertainty increased)');
+    }
+
+    // CME impact + SAA transit — compounded radiation environment
+    if (hasCMEImpact && inSaa) {
+        bonus += 10;
+        threats.push('CME impact during SAA passage (compounded radiation)');
     }
 
     return {
@@ -292,7 +442,9 @@ export function computeSingleSatelliteRisk(
     sat: SatPosition,
     weather: SpaceWeatherState,
     subsolar: { lat: number; lng: number },
-    hasPHA: boolean,
+    neos: NEOObject[],
+    conjunctions: ConjunctionEvent[],
+    predictions: FlarePathPrediction[] = [],
 ): SatPosition {
     const regime = classifyOrbit(sat.alt);
     const zenith = getSolarZenithAngle(sat.lat, sat.lng, subsolar);
@@ -303,13 +455,24 @@ export function computeSingleSatelliteRisk(
     const geo = scoreGeomagnetic(weather.kpIndex, regime, sat.alt);
     const rad = scoreRadiation(weather.protonFlux, regime, sat.lat, sat.lng);
     const wind = scoreSolarWind(weather.solarWindSpeed, regime);
-    const neo = scoreNeo(hasPHA);
+    const neo = scoreNeoProximity(neos, sat.alt, regime);
+    const conj = scoreConjunction(sat.id, conjunctions);
+    const cme = scoreCMEImpact(sat.id, predictions);
+    const hasWarningConj = conjunctions.some(
+        (c) =>
+            (c.sat1Id === sat.id || c.sat2Id === sat.id) &&
+            !c.isIntraConstellation &&
+            (c.severity === 'WARNING' || c.severity === 'CRITICAL'),
+    );
     const compound = computeCompoundBonus(
         weather.xrayClass,
         weather.kpIndex,
         weather.protonFlux,
         regime,
         sunlit,
+        hasWarningConj,
+        cme.score > 0,
+        inSaa,
     );
 
     const rawScore =
@@ -318,14 +481,35 @@ export function computeSingleSatelliteRisk(
         rad.score +
         wind.score +
         neo.score +
+        conj.score +
+        cme.score +
         compound.score;
     const bzMult = getBzMultiplier(weather.bz);
     const adjusted = Math.round(rawScore * bzMult);
     const finalScore = Math.min(adjusted, 100);
 
-    const threats = [flare, geo, rad, wind, neo, compound]
+    const threats = [flare, geo, rad, wind, neo, conj, cme, compound]
         .map((r) => r.threat)
         .filter((t): t is string => t !== null);
+
+    // Attach conjunction data to the satellite position
+    const satConjunctions = conjunctions.filter(
+        (c) => c.sat1Id === sat.id || c.sat2Id === sat.id,
+    );
+
+    // Attach CME impact probability if applicable
+    const cmeImpactProbability = predictions.length > 0
+        ? Math.max(
+            0,
+            ...predictions
+                .filter((p) => p.isEarthDirected)
+                .flatMap((p) =>
+                    (p.affectedSatellites ?? [])
+                        .filter((s) => s.noradId === sat.id)
+                        .map((s) => s.impactProbability),
+                ),
+        ) || undefined
+        : undefined;
 
     return {
         ...sat,
@@ -335,6 +519,9 @@ export function computeSingleSatelliteRisk(
         isSunlit: zenith < 90,
         isInSAA: inSaa,
         threats,
+        conjunctions: satConjunctions.length > 0 ? satConjunctions : undefined,
+        conjunctionCount: satConjunctions.length > 0 ? satConjunctions.length : undefined,
+        cmeImpactProbability,
     };
 }
 
@@ -346,6 +533,8 @@ export function computePerSatelliteRisk(
     positions: SatPosition[],
     weather: SpaceWeatherState | null,
     neos: NEOObject[],
+    conjunctions: ConjunctionEvent[] = [],
+    predictions: FlarePathPrediction[] = [],
 ): SatPosition[] {
     if (!weather) {
         return positions.map((sat) => ({
@@ -361,10 +550,9 @@ export function computePerSatelliteRisk(
 
     const now = new Date();
     const subsolar = getSubsolarPoint(now);
-    const hasPHA = neos.some((neo) => neo.isPotentiallyHazardous);
 
     return positions.map((sat) =>
-        computeSingleSatelliteRisk(sat, weather, subsolar, hasPHA),
+        computeSingleSatelliteRisk(sat, weather, subsolar, neos, conjunctions, predictions),
     );
 }
 
@@ -398,6 +586,8 @@ export function computeDetailedBreakdown(
     sat: SatPosition,
     weather: SpaceWeatherState | null,
     neos: NEOObject[],
+    conjunctions: ConjunctionEvent[] = [],
+    predictions: FlarePathPrediction[] = [],
 ): SatRiskBreakdown {
     const regime = classifyOrbit(sat.alt);
     const now = new Date();
@@ -405,7 +595,6 @@ export function computeDetailedBreakdown(
     const zenith = getSolarZenithAngle(sat.lat, sat.lng, subsolar);
     const sunlit = zenith < 100;
     const inSaa = regime === 'LEO' && isInSAA(sat.lat, sat.lng);
-    const hasPHA = neos.some((neo) => neo.isPotentiallyHazardous);
 
     const wx: SpaceWeatherState = weather ?? {
         xrayClass: null,
@@ -420,13 +609,24 @@ export function computeDetailedBreakdown(
     const geo = scoreGeomagnetic(wx.kpIndex, regime, sat.alt);
     const rad = scoreRadiation(wx.protonFlux, regime, sat.lat, sat.lng);
     const wind = scoreSolarWind(wx.solarWindSpeed, regime);
-    const neo = scoreNeo(hasPHA);
+    const neo = scoreNeoProximity(neos, sat.alt, regime);
+    const conj = scoreConjunction(sat.id, conjunctions);
+    const cme = scoreCMEImpact(sat.id, predictions);
+    const hasWarningConj = conjunctions.some(
+        (c) =>
+            (c.sat1Id === sat.id || c.sat2Id === sat.id) &&
+            !c.isIntraConstellation &&
+            (c.severity === 'WARNING' || c.severity === 'CRITICAL'),
+    );
     const compound = computeCompoundBonus(
         wx.xrayClass,
         wx.kpIndex,
         wx.protonFlux,
         regime,
         sunlit,
+        hasWarningConj,
+        cme.score > 0,
+        inSaa,
     );
     const bzMult = getBzMultiplier(wx.bz);
 
@@ -436,10 +636,12 @@ export function computeDetailedBreakdown(
         rad.score +
         wind.score +
         neo.score +
+        conj.score +
+        cme.score +
         compound.score;
     const finalScore = Math.min(Math.round(rawTotal * bzMult), 100);
 
-    const threats = [flare, geo, rad, wind, neo, compound]
+    const threats = [flare, geo, rad, wind, neo, conj, cme, compound]
         .map((r) => r.threat)
         .filter((t): t is string => t !== null);
 
@@ -461,6 +663,8 @@ export function computeDetailedBreakdown(
             radiation: rad.score,
             solarWind: wind.score,
             neo: neo.score,
+            conjunction: conj.score,
+            cmeImpact: cme.score,
             compound: compound.score,
             bzMultiplier: bzMult,
             rawTotal,

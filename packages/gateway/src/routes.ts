@@ -1,10 +1,14 @@
 import { Router, type Request, type Response } from 'express';
 import axios from 'axios';
 import { z } from 'zod';
+import { logger } from './logger';
+import prisma from './db';
 
 import {
     getLatestBrief,
     getLatestSpaceWeather,
+    getLatestEonetEvents,
+    getFlarePathPredictions,
     getLatestState,
     getAlertHistory,
     processAgentPush,
@@ -15,8 +19,10 @@ import {
     getSatelliteCount,
 } from './satellites';
 import { computeDetailedBreakdown } from './satRisk';
+import { getLatestConjunctions } from './conjunction';
 import type {
     AgentPushPayload,
+    ConjunctionEvent,
     SatPosition,
     SatRiskSummary,
 } from '@sentinel/shared';
@@ -34,6 +40,7 @@ const riskBreakdownSchema = z.object({
     solarWind: z.number(),
     imfBz: z.number(),
     neo: z.number(),
+    cmePath: z.number().default(0),
     compound: z.number(),
 });
 
@@ -96,6 +103,66 @@ const agentPushSchema = z.object({
             relativeVelocityKmS: z.number(),
         }),
     ),
+    eonetEvents: z.array(
+        z.object({
+            eventId: z.string(),
+            title: z.string(),
+            category: z.string(),
+            source: z.string(),
+            link: z.string().nullable(),
+            date: z.string(),
+            coordinates: z.object({
+                type: z.string(),
+                coordinates: z.array(z.number()),
+            }).nullable(),
+        }),
+    ),
+    flarePathPredictions: z.array(
+        z.object({
+            id: z.string(),
+            associatedCMEID: z.string(),
+            analysis: z.object({
+                time21_5: z.string(),
+                latitude: z.number(),
+                longitude: z.number(),
+                halfAngle: z.number(),
+                speed: z.number(),
+                type: z.string(),
+                isMostAccurate: z.boolean(),
+                associatedCMEID: z.string(),
+                note: z.string(),
+                catalog: z.string(),
+            }),
+            coneLatitude: z.number(),
+            coneLongitude: z.number(),
+            coneHalfAngle: z.number(),
+            coneSpeedKmS: z.number(),
+            estimatedArrivalTime: z.string(),
+            estimatedTransitHours: z.number(),
+            arrivalWindowStart: z.string(),
+            arrivalWindowEnd: z.string(),
+            earthDirectedness: z.enum(['DIRECT_HIT', 'GLANCING', 'MISS']),
+            earthImpactProbability: z.number(),
+            isEarthDirected: z.boolean(),
+            affectedSatellites: z.array(z.object({
+                noradId: z.number(),
+                name: z.string(),
+                orbitRegime: z.string(),
+                impactProbability: z.number(),
+                predictedPosition: z.object({
+                    lat: z.number(),
+                    lng: z.number(),
+                    alt: z.number(),
+                }),
+                isSunlit: z.boolean(),
+                isInSAA: z.boolean(),
+                riskContribution: z.number(),
+                advisory: z.string(),
+            })),
+            generatedAt: z.string(),
+            confidence: z.number(),
+        }),
+    ).default([]),
     timestamp: z.string(),
 });
 
@@ -117,6 +184,7 @@ export function createRouter(
               }
             : broadcastOrDeps;
     const { broadcast, getEnrichedPositions, getTopRisk } = deps;
+    const routeLog = logger.child({ component: 'Routes' });
     const router = Router();
 
     // -----------------------------------------------------------------------
@@ -248,10 +316,14 @@ export function createRouter(
             }
 
             const state = getLatestState();
+            const conjunctions = getLatestConjunctions();
+            const predictions = getFlarePathPredictions();
             const breakdown = computeDetailedBreakdown(
                 sat,
                 state.spaceWeather,
                 state.neos,
+                conjunctions,
+                predictions,
             );
             res.json(breakdown);
         },
@@ -265,7 +337,7 @@ export function createRouter(
             const alerts = await getAlertHistory();
             res.json(alerts);
         } catch (err) {
-            console.error('[Routes] Failed to fetch alerts:', err);
+            routeLog.error({ err }, 'Failed to fetch alert history');
             res.status(500).json({ error: 'Failed to retrieve alert history' });
         }
     });
@@ -276,6 +348,14 @@ export function createRouter(
     router.get('/api/space-weather', (_req: Request, res: Response) => {
         const weather = getLatestSpaceWeather();
         res.json(weather);
+    });
+
+    // -----------------------------------------------------------------------
+    // GET /api/events — active EONET events with coordinates
+    // -----------------------------------------------------------------------
+    router.get('/api/events', (_req: Request, res: Response) => {
+        const events = getLatestEonetEvents();
+        res.json({ count: events.length, events });
     });
 
     // -----------------------------------------------------------------------
@@ -388,6 +468,95 @@ export function createRouter(
     );
 
     // -----------------------------------------------------------------------
+    // GET /api/conjunctions — active conjunctions
+    // -----------------------------------------------------------------------
+    router.get('/api/conjunctions', (req: Request, res: Response) => {
+        let conjunctions = getLatestConjunctions();
+        const { severity, noradId, limit } = req.query;
+
+        if (severity) {
+            conjunctions = conjunctions.filter(
+                (c) => c.severity === String(severity).toUpperCase(),
+            );
+        }
+        if (noradId) {
+            const id = parseInt(String(noradId), 10);
+            if (!isNaN(id)) {
+                conjunctions = conjunctions.filter(
+                    (c) => c.sat1Id === id || c.sat2Id === id,
+                );
+            }
+        }
+
+        const maxResults = Math.min(parseInt(String(limit), 10) || 100, 500);
+        const sorted = conjunctions.sort((a, b) => a.distanceKm - b.distanceKm);
+
+        res.json({
+            count: Math.min(sorted.length, maxResults),
+            conjunctions: sorted.slice(0, maxResults),
+        });
+    });
+
+    // -----------------------------------------------------------------------
+    // GET /api/conjunctions/:noradId — conjunctions for a specific satellite
+    // -----------------------------------------------------------------------
+    router.get('/api/conjunctions/:noradId', (req: Request, res: Response) => {
+        const noradId = parseInt(req.params.noradId, 10);
+        if (isNaN(noradId)) {
+            res.status(400).json({ error: 'Invalid NORAD ID' });
+            return;
+        }
+
+        const conjunctions = getLatestConjunctions()
+            .filter((c) => c.sat1Id === noradId || c.sat2Id === noradId)
+            .sort((a, b) => a.distanceKm - b.distanceKm);
+
+        res.json({ noradId, count: conjunctions.length, conjunctions });
+    });
+
+    // -----------------------------------------------------------------------
+    // GET /api/conjunctions/history — historical events from DB
+    // -----------------------------------------------------------------------
+    router.get('/api/conjunctions/history', async (req: Request, res: Response) => {
+        try {
+            const since = req.query.since
+                ? new Date(String(req.query.since))
+                : new Date(Date.now() - 24 * 60 * 60 * 1000);
+            const severity = req.query.severity
+                ? String(req.query.severity).toUpperCase()
+                : undefined;
+            const limit = Math.min(parseInt(String(req.query.limit), 10) || 100, 500);
+
+            const where: Record<string, unknown> = {
+                timestamp: { gte: since },
+            };
+            if (severity) where.severity = severity;
+
+            const events = await prisma.conjunctionEvent.findMany({
+                where,
+                orderBy: { timestamp: 'desc' },
+                take: limit,
+            });
+
+            res.json({ count: events.length, events });
+        } catch (err) {
+            routeLog.error({ err }, 'Failed to fetch conjunction history');
+            res.status(500).json({ error: 'Failed to retrieve conjunction history' });
+        }
+    });
+
+    // -----------------------------------------------------------------------
+    // GET /internal/active-conjunctions — used by agent for LLM briefs
+    // -----------------------------------------------------------------------
+    router.get('/internal/active-conjunctions', (_req: Request, res: Response) => {
+        const conjunctions = getLatestConjunctions()
+            .filter((c: ConjunctionEvent) => !c.isIntraConstellation)
+            .sort((a, b) => a.distanceKm - b.distanceKm)
+            .slice(0, 20);
+        res.json({ conjunctions });
+    });
+
+    // -----------------------------------------------------------------------
     // GET /internal/top-risk-satellites — used by agent for LLM briefs
     // -----------------------------------------------------------------------
     router.get(
@@ -407,11 +576,13 @@ export function createRouter(
                 const errors = parsed.error.issues
                     .map((i) => `${i.path.join('.')}: ${i.message}`)
                     .join('; ');
+                routeLog.warn({ errors }, 'Agent push payload validation failed');
                 res.status(400).json({ error: `Invalid payload: ${errors}` });
                 return;
             }
             const payload = parsed.data as AgentPushPayload;
             const result = await processAgentPush(payload);
+            routeLog.info({ score: payload.risk.score, level: payload.risk.level, isAlert: result.isAlert }, 'Agent push processed');
 
             broadcast('risk-update', {
                 score: payload.risk.score,
@@ -421,6 +592,11 @@ export function createRouter(
             });
 
             broadcast('space-weather', payload.spaceWeather);
+            broadcast('eonet-events', payload.eonetEvents);
+
+            if (payload.flarePathPredictions && payload.flarePathPredictions.length > 0) {
+                broadcast('flare-path-predictions', payload.flarePathPredictions);
+            }
 
             if (result.isAlert) {
                 broadcast('risk-alert', {
@@ -433,9 +609,27 @@ export function createRouter(
 
             res.json(result);
         } catch (err) {
-            console.error('[Routes] Agent push processing failed:', err);
+            routeLog.error({ err }, 'Agent push processing failed');
             res.status(500).json({ error: 'Internal processing error' });
         }
+    });
+
+    // -----------------------------------------------------------------------
+    // GET /api/flare-path-predictions — active CME path predictions
+    // -----------------------------------------------------------------------
+    router.get('/api/flare-path-predictions', (_req: Request, res: Response) => {
+        const predictions = getFlarePathPredictions();
+        const active = predictions.filter(
+            (p) => new Date(p.arrivalWindowEnd) >= new Date(),
+        );
+        res.json({ count: active.length, predictions: active });
+    });
+
+    // -----------------------------------------------------------------------
+    // GET /internal/satellite-positions — used by agent for CME impact analysis
+    // -----------------------------------------------------------------------
+    router.get('/internal/satellite-positions', (_req: Request, res: Response) => {
+        res.json({ satellites: getEnrichedPositions() });
     });
 
     return router;

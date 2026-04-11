@@ -1,4 +1,7 @@
 import { z } from 'zod';
+import { logger } from './logger';
+
+const log = logger.child({ component: 'Env' });
 
 const envSchema = z.object({
     // Required
@@ -29,6 +32,7 @@ export function validateEnv(): Env {
         const errors = result.error.issues
             .map((i) => `  ${i.path.join('.')}: ${i.message}`)
             .join('\n');
+        // eslint-disable-next-line no-console -- Logger may not be initialized during env validation failure
         console.error(`[Env] Validation failed:\n${errors}`);
         throw new Error(`Environment validation failed:\n${errors}`);
     }
@@ -37,17 +41,13 @@ export function validateEnv(): Env {
 
     if (!env.DEMO_MODE) {
         if (!env.API_KEY) {
-            console.warn(
-                '[Env] API_KEY not set — public API routes will reject requests',
-            );
+            log.warn('API_KEY not set — public API routes will reject requests');
         }
         if (!env.INTERNAL_SECRET) {
-            console.warn(
-                '[Env] INTERNAL_SECRET not set — internal routes will reject requests',
-            );
+            log.warn('INTERNAL_SECRET not set — internal routes will reject requests');
         }
     } else {
-        console.log('[Env] DEMO_MODE enabled — auth checks are disabled');
+        log.info('DEMO_MODE enabled — auth checks are disabled');
     }
 
     return env;

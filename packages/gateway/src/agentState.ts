@@ -1,6 +1,7 @@
 import { v4 as uuid } from 'uuid';
 
 import prisma from './db';
+import { logger } from './logger';
 import type {
     AgentPushPayload,
     AlertRecord,
@@ -12,7 +13,11 @@ import type {
     DONKIFlare,
     DONKICME,
     NEOObject,
+    EonetEvent,
+    FlarePathPrediction,
 } from '@sentinel/shared';
+
+const log = logger.child({ component: 'AgentState' });
 
 // ---------------------------------------------------------------------------
 // In-memory hot cache (latest state only)
@@ -25,6 +30,8 @@ interface LatestState {
     flares: DONKIFlare[];
     cmes: DONKICME[];
     neos: NEOObject[];
+    eonetEvents: EonetEvent[];
+    flarePathPredictions: FlarePathPrediction[];
     lastUpdate: string | null;
 }
 
@@ -35,6 +42,8 @@ const latest: LatestState = {
     flares: [],
     cmes: [],
     neos: [],
+    eonetEvents: [],
+    flarePathPredictions: [],
     lastUpdate: null,
 };
 
@@ -54,6 +63,14 @@ export function getLatestSpaceWeather(): SpaceWeatherState | null {
     return latest.spaceWeather;
 }
 
+export function getLatestEonetEvents(): EonetEvent[] {
+    return latest.eonetEvents;
+}
+
+export function getFlarePathPredictions(): FlarePathPrediction[] {
+    return latest.flarePathPredictions;
+}
+
 export function getLatestState(): LatestState {
     return { ...latest };
 }
@@ -69,6 +86,8 @@ export async function getAlertHistory(
         orderBy: { timestamp: 'desc' },
         take: limit,
     });
+
+    log.debug({ limit, count: rows.length }, 'Alert history queried');
 
     return rows.map((row) => ({
         id: row.id,
@@ -106,6 +125,7 @@ export async function processAgentPush(
             flares: payload.flares as object[],
             cmes: payload.cmes as object[],
             neos: payload.neos as object[],
+            eonetEvents: payload.eonetEvents as object[],
             timestamp: new Date(payload.timestamp),
         },
     });
@@ -143,7 +163,11 @@ export async function processAgentPush(
     latest.flares = payload.flares;
     latest.cmes = payload.cmes;
     latest.neos = payload.neos;
+    latest.eonetEvents = payload.eonetEvents;
+    latest.flarePathPredictions = payload.flarePathPredictions ?? [];
     latest.lastUpdate = payload.timestamp;
+
+    log.debug({ isAlert, score: payload.risk.score, level: payload.risk.level }, 'Agent push processed and cached');
 
     return { received: true, isAlert };
 }
@@ -170,11 +194,13 @@ export async function hydrateFromDb(): Promise<void> {
         latest.flares = snapshot.flares as unknown as DONKIFlare[];
         latest.cmes = snapshot.cmes as unknown as DONKICME[];
         latest.neos = snapshot.neos as unknown as NEOObject[];
+        latest.eonetEvents = (snapshot as Record<string, unknown>).eonetEvents as unknown as EonetEvent[] ?? [];
         latest.lastUpdate = snapshot.timestamp.toISOString();
-        console.log(
-            `[AgentState] Hydrated from DB — last snapshot: ${snapshot.timestamp.toISOString()}`,
+        log.info(
+            { timestamp: snapshot.timestamp.toISOString() },
+            'Hydrated state from database',
         );
     } else {
-        console.log('[AgentState] No prior snapshots found — starting fresh');
+        log.info('No prior snapshots found, starting fresh');
     }
 }

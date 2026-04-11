@@ -1,5 +1,6 @@
 import { Router } from 'express';
 
+import { logger } from './logger';
 import {
     getLatestRisk,
     getLatestBrief,
@@ -15,6 +16,8 @@ import { evaluate } from './riskEngine';
 import { generateBrief, generateFallbackBrief } from './llmBrief';
 import { checkAndAlert } from './phoneAlert';
 import { getCallHistory } from './alertConfig';
+
+const log = logger.child({ component: 'Router' });
 
 const router = Router();
 
@@ -115,6 +118,8 @@ router.get('/brief', async (_req, res) => {
 
 router.post('/brief/generate', async (_req, res) => {
     try {
+        log.info('Brief generation requested');
+
         const risk = await evaluate();
         const weather = await buildSpaceWeatherState();
         const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
@@ -131,6 +136,7 @@ router.post('/brief/generate', async (_req, res) => {
             brief = generateFallbackBrief(risk);
         }
 
+        log.info({ recommendation: brief.recommendation }, 'Brief generated via API');
         res.json(brief);
     } catch (error) {
         const msg = error instanceof Error ? error.message : String(error);
@@ -218,6 +224,8 @@ router.post('/alerts/test-call', async (_req, res) => {
     }
 
     try {
+        log.info('Test call triggered');
+
         const risk = await getLatestRisk();
         if (!risk) {
             res.status(404).json({ error: 'No risk state available yet' });

@@ -1,7 +1,10 @@
 import axios from 'axios';
 import * as satellite from 'satellite.js';
 
+import { logger } from './logger';
 import type { SatPosition } from '@sentinel/shared';
+
+const log = logger.child({ component: 'Satellites' });
 
 // ---------------------------------------------------------------------------
 // Types
@@ -13,6 +16,15 @@ interface TleRecord {
     line1: string;
     line2: string;
     satrec: satellite.SatRec;
+    group: string;
+}
+
+// Extended position type carrying ECI vectors for conjunction detection
+export interface PropagatedSat extends SatPosition {
+    eciX: number;
+    eciY: number;
+    eciZ: number;
+    group: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -56,8 +68,9 @@ async function fetchWithRetry<T>(
                 throw err;
             }
             const backoffMs = Math.pow(2, attempt - 1) * 1000; // 1s, 2s, 4s
-            console.warn(
-                `[Satellites] ${label} attempt ${attempt}/${MAX_RETRIES} failed (${msg}), retrying in ${backoffMs}ms…`,
+            log.warn(
+                { label, attempt, maxRetries: MAX_RETRIES, backoffMs, error: msg },
+                'Fetch attempt failed, retrying',
             );
             await new Promise((resolve) => setTimeout(resolve, backoffMs));
         }
@@ -72,6 +85,8 @@ async function fetchWithRetry<T>(
 
 async function fetchTleGroup(group: string): Promise<TleRecord[]> {
     const url = `${CELESTRAK_BASE}?GROUP=${group}&FORMAT=3le`;
+    log.debug({ group, url }, 'Fetching TLE group');
+
     const response = await axios.get<string>(url, {
         timeout: FETCH_TIMEOUT_MS,
         responseType: 'text',
@@ -100,7 +115,7 @@ async function fetchTleGroup(group: string): Promise<TleRecord[]> {
 
         try {
             const satrec = satellite.twoline2satrec(line1, line2);
-            records.push({ noradId, name, line1, line2, satrec });
+            records.push({ noradId, name, line1, line2, satrec, group });
         } catch {
             // Skip satellites with unparseable TLEs
         }
@@ -110,6 +125,7 @@ async function fetchTleGroup(group: string): Promise<TleRecord[]> {
 }
 
 export async function refreshTles(): Promise<void> {
+    log.info('Starting TLE refresh');
     const results = await Promise.allSettled(
         GROUPS.map((g) => fetchWithRetry(() => fetchTleGroup(g), `group:${g}`)),
     );
@@ -122,19 +138,21 @@ export async function refreshTles(): Promise<void> {
                 tleCache.set(record.noradId, record);
                 added++;
             }
-            console.log(
-                `[Satellites] ${GROUPS[i]}: ${result.value.length} satellites loaded`,
+            log.info(
+                { group: GROUPS[i], count: result.value.length },
+                'TLE group loaded',
             );
         } else {
-            console.error(
-                `[Satellites] ${GROUPS[i]} fetch failed after ${MAX_RETRIES} retries:`,
-                result.reason?.message ?? result.reason,
+            log.error(
+                { group: GROUPS[i], err: result.reason?.message ?? result.reason },
+                'TLE group fetch failed after retries',
             );
         }
     }
 
-    console.log(
-        `[Satellites] TLE cache updated: ${tleCache.size} satellites (${added} processed)`,
+    log.info(
+        { cacheSize: tleCache.size, processed: added },
+        'TLE cache updated',
     );
 }
 
@@ -142,10 +160,10 @@ export async function refreshTles(): Promise<void> {
 // SGP4 Propagation
 // ---------------------------------------------------------------------------
 
-export function propagateAll(): SatPosition[] {
+export function propagateAllWithEci(): PropagatedSat[] {
     const now = new Date();
     const gmst = satellite.gstime(now);
-    const positions: SatPosition[] = [];
+    const results: PropagatedSat[] = [];
 
     for (const [, record] of tleCache) {
         try {
@@ -157,19 +175,27 @@ export function propagateAll(): SatPosition[] {
             }
 
             const geo = satellite.eciToGeodetic(position, gmst);
-            positions.push({
+            results.push({
                 id: record.noradId,
                 name: record.name,
                 lat: satellite.degreesLat(geo.latitude),
                 lng: satellite.degreesLong(geo.longitude),
                 alt: geo.height,
+                eciX: position.x,
+                eciY: position.y,
+                eciZ: position.z,
+                group: record.group,
             });
         } catch {
             // Skip satellites with propagation errors
         }
     }
 
-    return positions;
+    return results;
+}
+
+export function propagateAll(): SatPosition[] {
+    return propagateAllWithEci().map(({ eciX, eciY, eciZ, group, ...pos }) => pos);
 }
 
 // ---------------------------------------------------------------------------
@@ -225,9 +251,9 @@ export function getSatelliteCount(): number {
 export function startTleRefreshLoop(): void {
     setInterval(() => {
         refreshTles().catch((err) =>
-            console.error(
-                '[Satellites] TLE refresh failed:',
-                err.message ?? err,
+            log.error(
+                { err: err instanceof Error ? err.message : err },
+                'Periodic TLE refresh failed',
             ),
         );
     }, REFRESH_INTERVAL_MS);

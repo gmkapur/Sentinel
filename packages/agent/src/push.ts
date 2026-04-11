@@ -2,6 +2,10 @@ import axios from 'axios';
 
 import type { AgentPushPayload } from '@sentinel/shared';
 
+import { logger } from './logger';
+
+const log = logger.child({ component: 'Push' });
+
 export async function pushToGateway(payload: AgentPushPayload): Promise<void> {
     const gatewayUrl = process.env.GATEWAY_URL || 'http://localhost:3001';
 
@@ -18,10 +22,10 @@ export async function pushToGateway(payload: AgentPushPayload): Promise<void> {
             headers,
             timeout: 5_000,
         });
-        console.log('[Push] Payload delivered to gateway');
+        log.info({ gatewayUrl, score: payload.risk.score, level: payload.risk.level }, 'Payload delivered to gateway');
     } catch (error) {
         const msg = error instanceof Error ? error.message : String(error);
-        console.error(`[Push] Failed to deliver payload: ${msg}`);
-        // Fire-and-forget — next evaluation cycle will retry
+        log.error({ err: msg, gatewayUrl }, 'Failed to deliver payload to gateway');
+        // Fire-and-forget -- next evaluation cycle will retry
     }
 }

@@ -1,8 +1,12 @@
 import axios from 'axios';
 import type { RiskState, MissionBrief } from '@sentinel/shared';
 
+import { logger } from './logger';
+
+const log = logger.child({ component: 'ElevenLabs' });
+
 // ---------------------------------------------------------------------------
-// ElevenLabs Conversational AI — outbound call via Twilio
+// ElevenLabs Conversational AI -- outbound call via Twilio
 // ---------------------------------------------------------------------------
 
 interface OutboundCallParams {
@@ -17,7 +21,7 @@ interface OutboundCallResult {
 }
 
 // ---------------------------------------------------------------------------
-// System prompt — keeps the voice agent strictly on-topic as a security
+// System prompt -- keeps the voice agent strictly on-topic as a security
 // alert system. Injected via conversation_config_override on every call.
 // ---------------------------------------------------------------------------
 
@@ -36,7 +40,7 @@ BEHAVIOR:
 - Use clear, plain language suitable for voice communication. Avoid jargon where possible.
 - When answering questions, reference only the data provided in the alert context (risk score, threats, recommendations, breakdown).
 - If asked a question you cannot answer from the provided context, say: "I don't have that information available. Please check the Orbit Sentinel dashboard for full details."
-- Keep responses short — ideally 1-3 sentences per answer.
+- Keep responses short -- ideally 1-3 sentences per answer.
 - After answering a question, ask if there is anything else about the alert the operator needs.
 - If the operator confirms they have no more questions, end with: "Stay safe. Orbit Sentinel out." and end the call.
 
@@ -62,7 +66,7 @@ ALERT CONTEXT (injected per call):
 function buildFirstMessage(risk: RiskState, brief: MissionBrief): string {
     const parts: string[] = [];
 
-    // Opening — level + score
+    // Opening -- level + score
     parts.push(
         `This is Orbit Sentinel with an automated ${risk.level} priority alert.` +
             ` Risk score is ${risk.score} out of 100.` +
@@ -78,7 +82,7 @@ function buildFirstMessage(risk: RiskState, brief: MissionBrief): string {
         parts.push(`Active threats. ${threatList}.`);
     }
 
-    // Risk breakdown — only mention significant contributors
+    // Risk breakdown -- only mention significant contributors
     const bd = risk.breakdown;
     const contributors: string[] = [];
     if (bd.flare >= 15) contributors.push(`solar flare at ${bd.flare}`);
@@ -121,9 +125,7 @@ export async function initiateOutboundCall(
     const dashboardUrl = process.env.DASHBOARD_URL || 'http://localhost:5173';
 
     if (!apiKey || !agentId || !phoneNumberId) {
-        console.warn(
-            '[PhoneAlert] Missing ElevenLabs env vars (ELEVENLABS_API_KEY, ELEVENLABS_AGENT_ID, ELEVENLABS_PHONE_NUMBER_ID)',
-        );
+        log.warn('Missing ElevenLabs env vars (ELEVENLABS_API_KEY, ELEVENLABS_AGENT_ID, ELEVENLABS_PHONE_NUMBER_ID)');
         return null;
     }
 
@@ -163,9 +165,7 @@ export async function initiateOutboundCall(
             },
         );
 
-        console.log(
-            `[PhoneAlert] Call initiated to ${params.toNumber} — conversation: ${response.data.conversation_id}`,
-        );
+        log.info({ toNumber: params.toNumber, conversationId: response.data.conversation_id }, 'Outbound call initiated');
 
         return {
             conversationId: response.data.conversation_id,
@@ -173,9 +173,7 @@ export async function initiateOutboundCall(
         };
     } catch (error) {
         const msg = error instanceof Error ? error.message : String(error);
-        console.error(
-            `[PhoneAlert] Failed to initiate call to ${params.toNumber}: ${msg}`,
-        );
+        log.error({ toNumber: params.toNumber, err: msg }, 'Failed to initiate outbound call');
         return null;
     }
 }

@@ -1,7 +1,10 @@
 import axios from 'axios';
 
 import type { DONKIFlare, DONKICME } from '@sentinel/shared';
+import { logger } from '../logger';
 import { upsertFlares, upsertCMEs, updatePollStatus } from '../dataCache';
+
+const log = logger.child({ component: 'DONKI' });
 
 const DONKI_BASE = 'https://api.nasa.gov/DONKI';
 
@@ -71,7 +74,7 @@ function extractCMESpeed(analyses: Record<string, unknown>[]): number | null {
 }
 
 export async function pollDONKI(): Promise<void> {
-    console.log('[DONKI] Polling flares and CMEs...');
+    log.info('Polling flares and CMEs');
 
     const results = await Promise.allSettled([fetchFlares(), fetchCMEs()]);
 
@@ -80,13 +83,13 @@ export async function pollDONKI(): Promise<void> {
         const flares = results[0].value;
         await upsertFlares(flares);
         await updatePollStatus('donki-flares', true);
-        console.log(`[DONKI] Flares — ${flares.length} records`);
+        log.info({ type: 'flares', count: flares.length }, 'DONKI data fetched');
     } else {
         const err =
             results[0].reason instanceof Error
                 ? results[0].reason.message
                 : String(results[0].reason);
-        console.error(`[DONKI] Flares — FAILED: ${err}`);
+        log.error({ type: 'flares', err }, 'DONKI fetch failed');
         await updatePollStatus('donki-flares', false, err);
     }
 
@@ -95,13 +98,13 @@ export async function pollDONKI(): Promise<void> {
         const cmes = results[1].value;
         await upsertCMEs(cmes);
         await updatePollStatus('donki-cme', true);
-        console.log(`[DONKI] CMEs — ${cmes.length} records`);
+        log.info({ type: 'cmes', count: cmes.length }, 'DONKI data fetched');
     } else {
         const err =
             results[1].reason instanceof Error
                 ? results[1].reason.message
                 : String(results[1].reason);
-        console.error(`[DONKI] CMEs — FAILED: ${err}`);
+        log.error({ type: 'cmes', err }, 'DONKI fetch failed');
         await updatePollStatus('donki-cme', false, err);
     }
 }

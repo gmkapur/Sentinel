@@ -7,7 +7,7 @@ import {
     scoreRadiation,
     scoreSolarWind,
     scoreImfBz,
-    scoreNeo,
+    scoreNeoGlobal,
     computeCompoundBonus,
 } from '../riskEngine';
 import { generateFallbackBrief } from '../llmBrief';
@@ -33,14 +33,14 @@ function computeFullScore(
         solarWindSpeed: number | null;
         bz: number | null;
     },
-    hasPHA: boolean,
+    neos: import('@sentinel/shared').NEOObject[] = [],
 ): { score: number; level: string; breakdown: RiskBreakdown } {
     const flare = scoreFlare(weather.xrayClass);
     const geomagnetic = scoreGeomagnetic(weather.kpIndex);
     const radiation = scoreRadiation(weather.protonFlux);
     const solarWind = scoreSolarWind(weather.solarWindSpeed);
     const imfBz = scoreImfBz(weather.bz);
-    const neo = scoreNeo(hasPHA);
+    const neo = scoreNeoGlobal(neos);
     const compound = computeCompoundBonus(
         weather.xrayClass,
         weather.kpIndex,
@@ -62,6 +62,7 @@ function computeFullScore(
             solarWind,
             imfBz,
             neo,
+            cmePath: 0,
             compound,
         },
     };
@@ -72,7 +73,7 @@ function computeFullScore(
 // ---------------------------------------------------------------------------
 
 describe('Scenario: May 2024 G5 Geomagnetic Storm', () => {
-    const result = computeFullScore(g5StormWeather, false);
+    const result = computeFullScore(g5StormWeather);
 
     it('produces CRITICAL risk level', () => {
         expect(result.level).toBe('CRITICAL');
@@ -125,7 +126,7 @@ describe('Scenario: May 2024 G5 Geomagnetic Storm', () => {
 // ---------------------------------------------------------------------------
 
 describe('Scenario: Quiet Sun (Nominal Conditions)', () => {
-    const result = computeFullScore(quietSunWeather, false);
+    const result = computeFullScore(quietSunWeather);
 
     it('produces LOW risk level', () => {
         expect(result.level).toBe('LOW');
@@ -162,7 +163,7 @@ describe('Scenario: Quiet Sun (Nominal Conditions)', () => {
 // ---------------------------------------------------------------------------
 
 describe('Scenario: Moderate M-class Flare Event', () => {
-    const result = computeFullScore(moderateEventWeather, false);
+    const result = computeFullScore(moderateEventWeather);
 
     it('produces MODERATE risk level', () => {
         expect(result.level).toBe('MODERATE');
@@ -190,9 +191,19 @@ describe('Scenario: Moderate M-class Flare Event', () => {
 // ---------------------------------------------------------------------------
 
 describe('Scenario: Potentially Hazardous Asteroid', () => {
-    it('adds 5 points when PHA is within 7 days', () => {
-        const withoutPHA = computeFullScore(quietSunWeather, false);
-        const withPHA = computeFullScore(quietSunWeather, true);
-        expect(withPHA.score - withoutPHA.score).toBe(5);
+    it('adds points when PHA is within 7 days', () => {
+        const withoutPHA = computeFullScore(quietSunWeather);
+        const pha: import('@sentinel/shared').NEOObject[] = [{
+            id: '1',
+            name: 'TestPHA',
+            estimatedDiameter: 100,
+            isPotentiallyHazardous: true,
+            closeApproachDate: '2026-04-12',
+            missDistanceKm: 5_000_000,
+            relativeVelocityKmS: 10,
+        }];
+        const withPHA = computeFullScore(quietSunWeather, pha);
+        expect(withPHA.score).toBeGreaterThan(withoutPHA.score);
+        expect(withPHA.breakdown.neo).toBeGreaterThanOrEqual(5);
     });
 });

@@ -65,6 +65,12 @@ export function SatelliteTooltip({ satellite }: SatelliteTooltipProps) {
                 <div>Alt: {formatAlt(satellite.alt)}</div>
             </div>
 
+            {(satellite.conjunctionCount ?? 0) > 0 && (
+                <div className="font-mono text-[10px] text-yellow-400 mt-1">
+                    {satellite.conjunctionCount} conjunction{satellite.conjunctionCount !== 1 ? 's' : ''} active
+                </div>
+            )}
+
             {satellite.threats && satellite.threats.length > 0 && (
                 <div className="mt-1.5 pt-1.5 border-t border-border-subtle">
                     {satellite.threats.slice(0, 2).map((t, i) => (
