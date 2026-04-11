@@ -91,6 +91,8 @@ function buildFirstMessage(risk: RiskState, brief: MissionBrief): string {
     if (bd.radiation >= 10) contributors.push(`radiation at ${bd.radiation}`);
     if (bd.solarWind >= 5) contributors.push(`solar wind at ${bd.solarWind}`);
     if (bd.neo >= 5) contributors.push(`near-earth object at ${bd.neo}`);
+    if (bd.cmePath >= 5)
+        contributors.push(`C M E path impact at ${bd.cmePath}`);
     if (bd.compound >= 10)
         contributors.push(`compound synergy bonus of ${bd.compound}`);
     if (contributors.length > 0) {

@@ -9,7 +9,8 @@ import {
 import { EARTH_RADIUS_KM } from '../../utils/constants';
 import { SatelliteTooltip } from './SatelliteTooltip';
 import { SatelliteDetailPanel } from '../satellite/SatelliteDetailPanel';
-import type { SatPosition, ConjunctionEvent } from '@sentinel/shared/src/types';
+import { useCMEConePolygons, getConeColor, getConeSideColor } from './CMEConeOverlay';
+import type { SatPosition, ConjunctionEvent, CMEEarthDirectedness } from '@sentinel/shared/src/types';
 
 type ColorMode = 'risk' | 'altitude';
 
@@ -31,6 +32,8 @@ export function GlobeView() {
     const [selectedSat, setSelectedSat] = useState<SatPosition | null>(null);
     const [colorMode, setColorMode] = useState<ColorMode>('risk');
     const [showConjunctions, setShowConjunctions] = useState(true);
+    const [showCMECones, setShowCMECones] = useState(true);
+    const cmePolygons = useCMEConePolygons();
 
     useEffect(() => {
         const el = containerRef.current;
@@ -74,34 +77,6 @@ export function GlobeView() {
         [],
     );
 
-    const pointColor = useCallback(
-        (d: object) => {
-            const sat = d as SatPosition;
-            return colorMode === 'risk'
-                ? getRiskLevelColor(sat.riskLevel)
-                : getAltitudeColor(sat.alt);
-        },
-        [colorMode],
-    );
-
-    const pointRadius = useCallback(
-        (d: object) => {
-            if (colorMode !== 'risk') return 0.25;
-            const sat = d as SatPosition;
-            switch (sat.riskLevel) {
-                case 'CRITICAL':
-                    return 0.45;
-                case 'HIGH':
-                    return 0.35;
-                case 'MODERATE':
-                    return 0.25;
-                default:
-                    return 0.15;
-            }
-        },
-        [colorMode],
-    );
-
     const handlePointHover = useCallback((point: object | null) => {
         setHoveredSat(point as SatPosition | null);
     }, []);
@@ -132,6 +107,62 @@ export function GlobeView() {
     const arcDashGap = useCallback((d: object) => {
         return (d as ConjunctionEvent).severity === 'CRITICAL' ? 0 : 2;
     }, []);
+
+    // CME cone polygon layer
+    const polygonData = useMemo(
+        () => (showCMECones ? cmePolygons : []),
+        [cmePolygons, showCMECones],
+    );
+    const polygonGeoJson = useCallback(
+        (d: object) => (d as { geometry: object }).geometry,
+        [],
+    );
+    const polygonCapColor = useCallback(
+        (d: object) => getConeColor((d as { directedness: CMEEarthDirectedness }).directedness),
+        [],
+    );
+    const polygonSideColor = useCallback(
+        (d: object) => getConeSideColor((d as { directedness: CMEEarthDirectedness }).directedness),
+        [],
+    );
+    const polygonStrokeColor = useCallback(
+        () => 'rgba(239, 68, 68, 0.6)',
+        [],
+    );
+    const polygonAltitude = useCallback(() => 0.01, []);
+
+    // Enhance point radius for CME-affected satellites
+    const pointRadiusWithCME = useCallback(
+        (d: object) => {
+            const sat = d as SatPosition;
+            const baseRadius = colorMode !== 'risk'
+                ? 0.25
+                : sat.riskLevel === 'CRITICAL' ? 0.45
+                : sat.riskLevel === 'HIGH' ? 0.35
+                : sat.riskLevel === 'MODERATE' ? 0.25
+                : 0.15;
+            // Enlarge satellites with CME impact
+            if (sat.cmeImpactProbability && sat.cmeImpactProbability > 0.5) {
+                return baseRadius * 1.5;
+            }
+            return baseRadius;
+        },
+        [colorMode],
+    );
+
+    // Enhance point color for CME-affected satellites
+    const pointColorWithCME = useCallback(
+        (d: object) => {
+            const sat = d as SatPosition;
+            if (sat.cmeImpactProbability && sat.cmeImpactProbability > 0.5) {
+                return '#f97316'; // Orange glow for CME-affected
+            }
+            return colorMode === 'risk'
+                ? getRiskLevelColor(sat.riskLevel)
+                : getAltitudeColor(sat.alt);
+        },
+        [colorMode],
+    );
 
     const globeImageUrl = useMemo(
         () => 'https://unpkg.com/three-globe/example/img/earth-night.jpg',
@@ -178,8 +209,8 @@ export function GlobeView() {
                     pointLat="lat"
                     pointLng="lng"
                     pointAltitude={pointAlt}
-                    pointColor={pointColor}
-                    pointRadius={pointRadius}
+                    pointColor={pointColorWithCME}
+                    pointRadius={pointRadiusWithCME}
                     pointResolution={6}
                     pointsMerge={false}
                     onPointHover={handlePointHover}
@@ -194,6 +225,12 @@ export function GlobeView() {
                     arcStroke={arcStroke}
                     arcDashGap={arcDashGap}
                     arcDashAnimateTime={1500}
+                    polygonsData={polygonData}
+                    polygonGeoJsonGeometry={polygonGeoJson}
+                    polygonCapColor={polygonCapColor}
+                    polygonSideColor={polygonSideColor}
+                    polygonStrokeColor={polygonStrokeColor}
+                    polygonAltitude={polygonAltitude}
                     animateIn={false}
                 />
             )}
@@ -225,6 +262,21 @@ export function GlobeView() {
                         </span>
                     )}
                 </button>
+                {cmePolygons.length > 0 && (
+                    <button
+                        onClick={() => setShowCMECones((v) => !v)}
+                        className={`glass-panel px-2.5 py-1 font-mono text-[10px] uppercase tracking-wider transition-colors cursor-pointer ${
+                            showCMECones
+                                ? 'text-risk-critical'
+                                : 'text-text-muted hover:text-text-secondary'
+                        }`}
+                    >
+                        CME {showCMECones ? 'ON' : 'OFF'}
+                        <span className="ml-1 text-risk-critical">
+                            ({cmePolygons.length})
+                        </span>
+                    </button>
+                )}
                 <div className="flex items-center gap-2">
                     {legendItems.map((item) => (
                         <span

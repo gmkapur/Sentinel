@@ -11,7 +11,7 @@
  * Enable via DEMO_MODE=true in .env
  */
 
-import type { DONKIFlare, DONKICME, NEOObject, FlarePathPrediction } from '@sentinel/shared';
+import type { DONKIFlare, DONKICME, NEOObject, CMEAnalysis } from '@sentinel/shared';
 
 import { logger } from './logger';
 import {
@@ -19,7 +19,7 @@ import {
     upsertFlares,
     upsertCMEs,
     upsertNeos,
-    saveFlarePathPredictions,
+    upsertCMEAnalyses,
 } from './dataCache';
 
 const log = logger.child({ component: 'Demo' });
@@ -154,121 +154,44 @@ function makeFakeNeos(): NEOObject[] {
 }
 
 // ---------------------------------------------------------------------------
-// Fake Flare Path Predictions -- two Earth-directed CMEs from the X5.3 event
+// Fake CME Analyses -- recent timestamps so arrival windows are in the future.
+// These feed the flarePathPredictor which generates per-satellite predictions.
+//
+// Key constraints to pass predictor filters:
+//   - speed >= 300 and halfAngle > 0
+//   - time21_5 recent enough that arrivalWindowEnd > now
+//   - latitude/longitude near 0 to pass getEarthDirectedCMEAnalyses filter
 // ---------------------------------------------------------------------------
 
-function hoursFromNow(h: number): string {
-    return new Date(Date.now() + h * 60 * 60 * 1000).toISOString();
-}
-
-function makeFakeFlarePathPredictions(): FlarePathPrediction[] {
-    const now = new Date().toISOString();
+function makeFakeCMEAnalyses(): CMEAnalysis[] {
     return [
         {
-            id: 'FPP-DEMO-CME-001',
+            // Fast halo CME from X5.3 flare — direct hit trajectory
+            // Transit ~24.8 h at 2100 km/s → window end ~+27 h from now
             associatedCMEID: 'DEMO-CME-001',
-            analysis: {
-                time21_5: hoursAgo(2),
-                latitude: 12,
-                longitude: -18,
-                halfAngle: 42,
-                speed: 2100,
-                type: 'S',
-                isMostAccurate: true,
-                associatedCMEID: 'DEMO-CME-001',
-                note: 'Halo CME -- full Earth disk, high confidence direct hit',
-                catalog: 'M2M_CATALOG',
-            },
-            coneLatitude: 12,
-            coneLongitude: -18,
-            coneHalfAngle: 42,
-            coneSpeedKmS: 2100,
-            estimatedArrivalTime: hoursFromNow(14),
-            estimatedTransitHours: 16.5,
-            arrivalWindowStart: hoursFromNow(12),
-            arrivalWindowEnd: hoursFromNow(20),
-            earthDirectedness: 'DIRECT_HIT',
-            earthImpactProbability: 0.91,
-            isEarthDirected: true,
-            affectedSatellites: [
-                {
-                    noradId: 25544,
-                    name: 'ISS (ZARYA)',
-                    orbitRegime: 'LEO',
-                    impactProbability: 0.87,
-                    predictedPosition: { lat: 28.4, lng: -82.1, alt: 421 },
-                    isSunlit: true,
-                    isInSAA: false,
-                    riskContribution: 22,
-                    advisory: 'Enter safe mode — elevated radiation expected',
-                },
-                {
-                    noradId: 20580,
-                    name: 'HST',
-                    orbitRegime: 'LEO',
-                    impactProbability: 0.82,
-                    predictedPosition: { lat: 24.1, lng: 15.7, alt: 540 },
-                    isSunlit: true,
-                    isInSAA: false,
-                    riskContribution: 18,
-                    advisory: 'Shutter instruments during arrival window',
-                },
-                {
-                    noradId: 43013,
-                    name: 'NOAA-20',
-                    orbitRegime: 'LEO',
-                    impactProbability: 0.79,
-                    predictedPosition: { lat: -61.2, lng: 145.3, alt: 824 },
-                    isSunlit: false,
-                    isInSAA: true,
-                    riskContribution: 25,
-                    advisory: 'SAA crossing + CME arrival — consider safe mode',
-                },
-            ],
-            generatedAt: now,
-            confidence: 0.88,
+            time21_5: hoursAgo(2),
+            latitude: 12,
+            longitude: -18,
+            halfAngle: 42,
+            speed: 2100,
+            type: 'S',
+            isMostAccurate: true,
+            note: 'Halo CME — full Earth disk, high confidence direct hit',
+            catalog: 'M2M_CATALOG',
         },
         {
-            id: 'FPP-DEMO-CME-002',
+            // Moderate CME — glancing blow from M7.1 flare
+            // Transit ~35.6 h at 1400 km/s → window end ~+32 h from now
             associatedCMEID: 'DEMO-CME-002',
-            analysis: {
-                time21_5: hoursAgo(11),
-                latitude: -8,
-                longitude: 22,
-                halfAngle: 28,
-                speed: 1400,
-                type: 'S',
-                isMostAccurate: true,
-                associatedCMEID: 'DEMO-CME-002',
-                note: 'Partial halo CME — glancing blow likely',
-                catalog: 'M2M_CATALOG',
-            },
-            coneLatitude: -8,
-            coneLongitude: 22,
-            coneHalfAngle: 28,
-            coneSpeedKmS: 1400,
-            estimatedArrivalTime: hoursFromNow(30),
-            estimatedTransitHours: 42,
-            arrivalWindowStart: hoursFromNow(26),
-            arrivalWindowEnd: hoursFromNow(38),
-            earthDirectedness: 'GLANCING',
-            earthImpactProbability: 0.48,
-            isEarthDirected: true,
-            affectedSatellites: [
-                {
-                    noradId: 25544,
-                    name: 'ISS (ZARYA)',
-                    orbitRegime: 'LEO',
-                    impactProbability: 0.41,
-                    predictedPosition: { lat: 51.6, lng: 60.2, alt: 421 },
-                    isSunlit: true,
-                    isInSAA: false,
-                    riskContribution: 8,
-                    advisory: 'Monitor — glancing CME arrival possible',
-                },
-            ],
-            generatedAt: now,
-            confidence: 0.61,
+            time21_5: hoursAgo(11),
+            latitude: -8,
+            longitude: 22,
+            halfAngle: 28,
+            speed: 1400,
+            type: 'S',
+            isMostAccurate: true,
+            note: 'Partial halo CME — glancing blow likely',
+            catalog: 'M2M_CATALOG',
         },
     ];
 }
@@ -297,8 +220,9 @@ export async function injectDemoData(): Promise<void> {
         upsertNeos(makeFakeNeos()),
     ]);
 
-    // Inject fake flare path predictions (bypasses flarePathPredictor which needs real CME analyses)
-    await saveFlarePathPredictions(makeFakeFlarePathPredictions());
+    // Inject fake CME analyses with recent timestamps so the flarePathPredictor
+    // generates predictions with arrival windows in the future
+    await upsertCMEAnalyses(makeFakeCMEAnalyses());
 
     log.info('Fake data injected, risk engine will compute CRITICAL scores');
     log.debug('Expected: Global score ~100 (CRITICAL), LEO sunlit satellites at HIGH/CRITICAL');

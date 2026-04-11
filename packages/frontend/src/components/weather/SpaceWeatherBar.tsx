@@ -1,6 +1,7 @@
 import { Zap, Activity, Wind } from 'lucide-react';
 import { useMissionStore } from '../../stores/missionStore';
 import { WeatherGauge } from './WeatherGauge';
+import { CMECountdown } from './CMECountdown';
 import {
     getXrayStatus,
     getKpStatus,
@@ -14,6 +15,7 @@ export function SpaceWeatherBar() {
 
     return (
         <div className="bg-base border-t border-border-subtle px-4 py-3 flex items-stretch gap-3">
+            <CMECountdown />
             <WeatherGauge
                 label="X-RAY"
                 value={weather?.xrayClass ?? '---'}

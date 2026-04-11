@@ -7,6 +7,7 @@ import type {
     SatPosition,
     AlertRecord,
     ConjunctionEvent,
+    FlarePathPrediction,
 } from '@sentinel/shared/src/types';
 
 export function useSocket(): void {
@@ -20,6 +21,7 @@ export function useSocket(): void {
             setSatellites,
             setWeather,
             setConjunctions,
+            setFlarePathPredictions,
         } = useMissionStore.getState();
 
         socket.on('connect', () => {
@@ -49,6 +51,10 @@ export function useSocket(): void {
 
         socket.on('conjunction-update', (data: ConjunctionEvent[]) => {
             setConjunctions(data);
+        });
+
+        socket.on('flare-path-predictions', (data: FlarePathPrediction[]) => {
+            setFlarePathPredictions(data);
         });
 
         socket.on('conjunction-alerts', (alerts: ConjunctionEvent[]) => {
@@ -100,6 +106,7 @@ export function useSocket(): void {
             socket.off('conjunction-update');
             socket.off('conjunction-alerts');
             socket.off('satellite-risk-alerts');
+            socket.off('flare-path-predictions');
             disconnectSocket();
         };
     }, []);

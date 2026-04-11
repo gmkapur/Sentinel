@@ -13,7 +13,9 @@ const LEVEL_ORDER: Record<RiskLevel, number> = {
 export function useWatchlistAlerts(): void {
     const watchedIds = useWatchlistStore((s) => s.watchedIds);
     const satellites = useMissionStore((s) => s.satellites);
+    const predictions = useMissionStore((s) => s.flarePathPredictions);
     const prevLevels = useRef<Map<number, RiskLevel>>(new Map());
+    const notifiedCME = useRef<Set<string>>(new Set());
 
     useEffect(() => {
         if (!('Notification' in window)) return;
@@ -23,6 +25,7 @@ export function useWatchlistAlerts(): void {
 
         const idSet = new Set(watchedIds);
 
+        // Risk level escalation alerts
         for (const sat of satellites) {
             if (!idSet.has(sat.id)) continue;
 
@@ -45,5 +48,37 @@ export function useWatchlistAlerts(): void {
 
             if (curr) prevLevels.current.set(sat.id, curr);
         }
-    }, [satellites, watchedIds]);
+
+        // CME impact alerts for watchlisted satellites
+        if (Notification.permission === 'granted') {
+            for (const pred of predictions) {
+                if (!pred.isEarthDirected) continue;
+                for (const impact of pred.affectedSatellites ?? []) {
+                    if (!idSet.has(impact.noradId)) continue;
+                    if (impact.impactProbability < 0.5) continue;
+
+                    const notifKey = `${pred.id}-${impact.noradId}`;
+                    if (notifiedCME.current.has(notifKey)) continue;
+                    notifiedCME.current.add(notifKey);
+
+                    const hoursUntil =
+                        (new Date(pred.estimatedArrivalTime).getTime() -
+                            Date.now()) /
+                        3_600_000;
+                    const eta =
+                        hoursUntil > 0
+                            ? `ETA ${Math.round(hoursUntil)}h`
+                            : 'arrival imminent';
+
+                    new Notification(
+                        `CME Impact: ${impact.name}`,
+                        {
+                            body: `${pred.earthDirectedness} CME (${eta}, ${Math.round(impact.impactProbability * 100)}% impact prob). ${impact.advisory}`,
+                            tag: notifKey,
+                        },
+                    );
+                }
+            }
+        }
+    }, [satellites, watchedIds, predictions]);
 }

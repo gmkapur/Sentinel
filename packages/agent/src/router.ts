@@ -11,6 +11,7 @@ import {
     getRecentCMEs,
     getUpcomingNeos,
     getActiveEonetEvents,
+    getActiveFlarePathPredictions,
 } from './dataCache';
 import { evaluate } from './riskEngine';
 import { generateBrief, generateFallbackBrief } from './llmBrief';
@@ -128,10 +129,11 @@ router.post('/brief/generate', async (_req, res) => {
             getRecentCMEs(thirtyDaysAgo),
             getUpcomingNeos(7),
         ]);
+        const predictions = await getActiveFlarePathPredictions();
 
         let brief;
         if (process.env.ANTHROPIC_API_KEY) {
-            brief = await generateBrief(risk, weather, flares, cmes, neos);
+            brief = await generateBrief(risk, weather, flares, cmes, neos, predictions);
         } else {
             brief = generateFallbackBrief(risk);
         }

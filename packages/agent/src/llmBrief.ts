@@ -78,6 +78,8 @@ Your analysis should consider:
 - When per-satellite risk data is provided, include actionable guidance for the most at-risk assets (e.g., "ISS should delay EVA operations", "LEO CubeSats on sunlit side should enter safe mode during this flare window")
 - TLE-based conjunction warnings are proximity alerts, NOT collision predictions. SGP4 accuracy degrades to ~1 km over days. For WARNING/CRITICAL conjunctions, recommend monitoring or standby for avoidance maneuvers — do NOT declare imminent collision
 - Conjunctions during geomagnetic storms (Kp >= 5) are higher uncertainty due to atmospheric drag perturbations on LEO orbits
+- CME path predictions include Earth-directedness (DIRECT_HIT, GLANCING, MISS), estimated arrival time, and per-satellite impact probabilities. For imminent arrivals (≤6h), recommend safe mode for affected LEO/MEO assets. Multiple Earth-directed CMEs within 24h compound radiation risk significantly
+- When CME predictions show affected satellites, include specific advisories from the prediction data (e.g., "enter safe mode", "activate radiation shielding")
 
 Respond ONLY with valid JSON matching this exact schema (no markdown, no code fences):
 {
@@ -94,6 +96,7 @@ export async function generateBrief(
     flares: DONKIFlare[],
     cmes: DONKICME[],
     neos: NEOObject[],
+    predictions: FlarePathPrediction[] = [],
 ): Promise<MissionBrief> {
     const anthropic = getClient();
 
@@ -109,6 +112,7 @@ export async function generateBrief(
             flares,
             cmes,
             neos,
+            predictions,
         );
 
         const response = await anthropic.messages.create({
@@ -285,6 +289,7 @@ async function buildUserPrompt(
     flares: DONKIFlare[],
     cmes: DONKICME[],
     neos: NEOObject[],
+    predictions: FlarePathPrediction[] = [],
 ): Promise<string> {
     const [topSats, conjunctions] = await Promise.all([
         fetchTopRiskSatellites(),
@@ -311,6 +316,33 @@ async function buildUserPrompt(
             '\nNote: TLE accuracy is ~1 km for LEO. Include conjunction-specific guidance for WARNING/CRITICAL events.';
     }
 
+    let cmeSection = '';
+    const earthDirected = predictions.filter((p) => p.isEarthDirected);
+    if (earthDirected.length > 0) {
+        cmeSection = '\n\nCME PATH PREDICTIONS (Earth-directed):';
+        for (const pred of earthDirected.slice(0, 5)) {
+            const hoursUntil =
+                (new Date(pred.estimatedArrivalTime).getTime() - Date.now()) /
+                3_600_000;
+            const eta =
+                hoursUntil > 0
+                    ? `ETA ${Math.round(hoursUntil)}h`
+                    : 'arrival window active';
+            cmeSection += `\n  CME ${pred.associatedCMEID} — ${pred.earthDirectedness} (${Math.round(pred.earthImpactProbability * 100)}% impact prob, ${eta}, speed ${pred.coneSpeedKmS} km/s, confidence ${Math.round(pred.confidence * 100)}%)`;
+            const topAffected = (pred.affectedSatellites ?? []).slice(0, 5);
+            if (topAffected.length > 0) {
+                cmeSection += '\n    Most affected satellites:';
+                for (const sat of topAffected) {
+                    cmeSection += `\n      ${sat.name} (${sat.orbitRegime}, ${Math.round(sat.impactProbability * 100)}% impact, risk +${sat.riskContribution}) — ${sat.advisory}`;
+                }
+            }
+        }
+        if (earthDirected.length >= 2) {
+            cmeSection +=
+                '\n  WARNING: Multiple Earth-directed CMEs detected — compounded radiation environment expected.';
+        }
+    }
+
     return `Current Space Weather Assessment — ${new Date().toISOString()}
 
 RISK SCORE: ${risk.score}/100 (${risk.level})
@@ -321,6 +353,7 @@ BREAKDOWN:
   Solar Wind:         ${risk.breakdown.solarWind} points
   IMF Bz:             ${risk.breakdown.imfBz} points
   NEO Proximity:      ${risk.breakdown.neo} points
+  CME Path:           ${risk.breakdown.cmePath} points
   Compound Synergy:   ${risk.breakdown.compound} points
 
 CURRENT READINGS:
@@ -361,7 +394,7 @@ NEAR-EARTH OBJECTS (next 7 days): ${
                   )
                   .join('; ')
             : 'None tracked'
-    }${satSection}${conjSection}
+    }${satSection}${conjSection}${cmeSection}
 
 Generate your mission brief.`;
 }

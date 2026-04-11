@@ -8,6 +8,7 @@ import type {
     SatPosition,
     AlertRecord,
     ConjunctionEvent,
+    FlarePathPrediction,
 } from '@sentinel/shared/src/types';
 
 interface ConnectionState {
@@ -23,6 +24,7 @@ interface MissionStore {
     satelliteCount: number;
     alerts: AlertRecord[];
     conjunctions: ConjunctionEvent[];
+    flarePathPredictions: FlarePathPrediction[];
     connection: ConnectionState;
 
     setRisk: (risk: RiskState) => void;
@@ -33,6 +35,7 @@ interface MissionStore {
     addAlert: (alert: AlertRecord) => void;
     setAlerts: (alerts: AlertRecord[]) => void;
     setConjunctions: (conjunctions: ConjunctionEvent[]) => void;
+    setFlarePathPredictions: (predictions: FlarePathPrediction[]) => void;
     setConnected: (connected: boolean) => void;
     setLastUpdate: (timestamp: string) => void;
     initializeFromStatus: (data: {
@@ -52,6 +55,7 @@ export const useMissionStore = create<MissionStore>((set) => ({
     satelliteCount: 0,
     alerts: [],
     conjunctions: [],
+    flarePathPredictions: [],
     connection: { connected: false, lastUpdate: null },
 
     setRisk: (risk) => set({ risk }),
@@ -65,6 +69,7 @@ export const useMissionStore = create<MissionStore>((set) => ({
         })),
     setAlerts: (alerts) => set({ alerts }),
     setConjunctions: (conjunctions) => set({ conjunctions }),
+    setFlarePathPredictions: (flarePathPredictions) => set({ flarePathPredictions }),
     setConnected: (connected) =>
         set((state) => ({
             connection: { ...state.connection, connected },
@@ -99,6 +104,30 @@ export function useTopRiskSatellites(count = 10): SatPosition[] {
                 .sort((a, b) => (b.riskScore ?? 0) - (a.riskScore ?? 0))
                 .slice(0, count),
         [satellites, count],
+    );
+}
+
+export function useActiveFlarePathPredictions(): FlarePathPrediction[] {
+    const predictions = useMissionStore((s) => s.flarePathPredictions);
+    return useMemo(
+        () =>
+            predictions.filter(
+                (p) => new Date(p.arrivalWindowEnd) >= new Date(),
+            ),
+        [predictions],
+    );
+}
+
+export function useEarthDirectedPredictions(): FlarePathPrediction[] {
+    const predictions = useMissionStore((s) => s.flarePathPredictions);
+    return useMemo(
+        () =>
+            predictions.filter(
+                (p) =>
+                    p.isEarthDirected &&
+                    new Date(p.arrivalWindowEnd) >= new Date(),
+            ),
+        [predictions],
     );
 }
 

@@ -12,6 +12,12 @@ const log = logger.child({ component: 'Conjunction' });
 
 type AltBand = 'LEO_LOW' | 'LEO_HIGH' | 'MEO' | 'GEO' | 'HEO';
 
+// Numeric ordering for bands — used to ensure each cross-band pair is processed only once
+const BAND_ORDER: Record<AltBand, number> = { LEO_LOW: 0, LEO_HIGH: 1, MEO: 2, GEO: 3, HEO: 4 };
+
+// Per-band satellite cap — prevents O(n²) explosion with mega-constellations (e.g. 10K+ Starlink)
+const MAX_SATS_PER_BAND = 1000;
+
 function getAltBand(altKm: number): AltBand {
     if (altKm < 600) return 'LEO_LOW';
     if (altKm < 2000) return 'LEO_HIGH';
@@ -118,19 +124,29 @@ export function detectConjunctions(satellites: PropagatedSat[]): ConjunctionResu
         bucket.push(sat);
     }
 
-    // Phase 2: Pairwise comparison within same + adjacent bands
+    // Cap each band to prevent O(n²) explosion with mega-constellations
+    for (const [band, sats] of buckets) {
+        if (sats.length > MAX_SATS_PER_BAND) {
+            buckets.set(band, sats.slice(0, MAX_SATS_PER_BAND));
+        }
+    }
+
+    // Phase 2: Pairwise comparison within same + adjacent bands.
+    // Only process each band pair once (adjBand >= band by BAND_ORDER) — eliminates the
+    // need for a checkedPairs Set, which would overflow V8's ~16.7M entry limit at scale.
     const all: ConjunctionEvent[] = [];
     const newAlerts: ConjunctionEvent[] = [];
-    const checkedPairs = new Set<string>();
 
     for (const [band, sats] of buckets) {
         const adjacentBands = ADJACENT_BANDS[band];
 
         for (const adjBand of adjacentBands) {
+            // Skip pairs where adjBand comes before band — they'll be covered from the other side
+            if (BAND_ORDER[adjBand] < BAND_ORDER[band]) continue;
+
             const adjSats = buckets.get(adjBand);
             if (!adjSats) continue;
 
-            // For same-band comparison, avoid double-checking
             const isSameBand = band === adjBand;
 
             for (let i = 0; i < sats.length; i++) {
@@ -141,11 +157,6 @@ export function detectConjunctions(satellites: PropagatedSat[]): ConjunctionResu
                 for (let j = startJ; j < targetArr.length; j++) {
                     const sat2 = targetArr[j];
                     if (sat1.id === sat2.id) continue;
-
-                    // Skip if already checked this pair
-                    const pk = pairKey(sat1.id, sat2.id);
-                    if (checkedPairs.has(pk)) continue;
-                    checkedPairs.add(pk);
 
                     const dist = eciDistance(sat1, sat2);
 

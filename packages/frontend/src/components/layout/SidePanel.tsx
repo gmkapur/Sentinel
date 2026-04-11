@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { MissionBriefCard } from '../risk/MissionBriefCard';
 import { RiskBreakdownChart } from '../risk/RiskBreakdownChart';
+import { CMETimeline } from '../weather/CMETimeline';
 import { AlertFeed } from '../alerts/AlertFeed';
 import { SatelliteList } from '../satellite/SatelliteList';
 import { WatchlistPanel } from '../satellite/WatchlistPanel';
@@ -53,6 +54,7 @@ export function SidePanel({ className = '' }: SidePanelProps) {
                     <>
                         <MissionBriefCard />
                         <RiskBreakdownChart />
+                        <CMETimeline />
                         <AlertFeed />
                     </>
                 )}

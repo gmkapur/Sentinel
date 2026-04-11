@@ -113,7 +113,8 @@ async function runEvaluationCycle(): Promise<void> {
                 getRecentCMEs(thirtyDaysAgo),
                 getUpcomingNeos(7),
             ]);
-            brief = await generateBrief(risk, weather, flares, cmes, neos);
+            const activePredictions = await getFlarePathPredictions();
+            brief = await generateBrief(risk, weather, flares, cmes, neos, activePredictions);
         } else if (!brief) {
             // Generate fallback if no brief exists at all
             brief = generateFallbackBrief(risk);
