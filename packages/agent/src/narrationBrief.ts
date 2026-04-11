@@ -24,7 +24,7 @@ const MODEL = 'claude-sonnet-4-20250514';
 // ---------------------------------------------------------------------------
 
 const narrationScriptSchema = z.object({
-    script: z.string().min(10).max(2000),
+    script: z.string().min(10).max(600),
 });
 
 // ---------------------------------------------------------------------------
@@ -44,42 +44,32 @@ function getClient(): Anthropic | null {
 // ---------------------------------------------------------------------------
 
 const SYSTEM_PROMPTS: Record<NarrationRequest['objectType'], string> = {
-    satellite: `You are Orbit Sentinel's voice briefing system. Generate a spoken narration brief for the satellite identified below.
+    satellite: `You are Orbit Sentinel's voice briefing system. Generate a concise spoken brief for the satellite below.
 
 Rules:
-- Open with the satellite name and NORAD ID.
-- State orbit regime, altitude, sunlit/shadow status, and SAA status.
-- Describe the 2-3 most active threats to this satellite from the space weather context provided.
-- Name up to 3 other satellites in similar orbit regimes that share the same threat exposure if available.
-- End with 1-2 concrete recommended actions the operator should take now.
-- Write as natural spoken prose — no bullet points, no markdown, no parenthetical numbers, no dashes used as list markers.
-- Stay under 380 words.
-- Do not describe threats as harming people on the ground. Frame everything in terms of satellite operations.
-- Return ONLY the plain prose text. No JSON, no code fences, no headers.`,
+- Exactly 2 sentences. No more.
+- Sentence 1: name the satellite and its current top threat or risk level.
+- Sentence 2: give one concrete action the operator should take right now.
+- Natural spoken prose — no bullet points, no markdown, no numbers.
+- Return ONLY the plain prose text.`,
 
-    threat: `You are Orbit Sentinel's voice briefing system. Generate a spoken narration brief for the space weather threat identified below.
+    threat: `You are Orbit Sentinel's voice briefing system. Generate a concise spoken brief for the space weather threat below.
 
 Rules:
-- Open by naming the threat type and its current severity.
-- Describe what this threat means for satellites in the affected orbit regimes.
-- Name the top 3 most at-risk satellites from the provided context.
-- Describe what the near-term trajectory of this threat looks like (intensifying, stable, or decaying).
-- End with 1-2 recommended actions for affected operators.
-- Write as natural spoken prose — no bullet points, no markdown.
-- Stay under 350 words.
-- Return ONLY the plain prose text. No JSON, no code fences, no headers.`,
+- Exactly 2 sentences. No more.
+- Sentence 1: name the threat, its severity, and which orbit regimes are most affected.
+- Sentence 2: give one concrete recommended action for affected operators.
+- Natural spoken prose — no bullet points, no markdown.
+- Return ONLY the plain prose text.`,
 
-    neo: `You are Orbit Sentinel's voice briefing system. Generate a spoken narration brief for the near-Earth object identified below.
+    neo: `You are Orbit Sentinel's voice briefing system. Generate a concise spoken brief for the near-Earth object below.
 
 Rules:
-- Open by naming the object and its close-approach date.
-- State the miss distance in kilometers and relative velocity.
-- State whether it is classified as potentially hazardous.
-- Describe what relevance, if any, this object has to current satellite operations.
-- End with a monitoring recommendation.
-- Write as natural spoken prose — no bullet points, no markdown.
-- Stay under 280 words.
-- Return ONLY the plain prose text. No JSON, no code fences, no headers.`,
+- Exactly 2 sentences. No more.
+- Sentence 1: name the object, its close-approach date, miss distance, and hazard classification.
+- Sentence 2: give a monitoring recommendation for satellite operators.
+- Natural spoken prose — no bullet points, no markdown.
+- Return ONLY the plain prose text.`,
 };
 
 // ---------------------------------------------------------------------------
@@ -191,14 +181,14 @@ export function generateFallbackNarrationScript(
     let script: string;
     switch (req.objectType) {
         case 'satellite':
-            script = `This is Orbit Sentinel. Satellite ${req.objectName}, NORAD identifier ${req.objectId}, is currently under nominal tracking status. Overall mission risk is ${level} at a score of ${score} out of 100. No specific advisory data is available at this time. Continue standard monitoring protocols and check the dashboard for the latest space weather conditions.`;
+            script = `Satellite ${req.objectName} is currently tracking at ${level} risk, scoring ${score} out of 100. Maintain standard monitoring protocols and check the dashboard for the latest space weather conditions.`;
             break;
         case 'threat':
-            script = `This is Orbit Sentinel. The threat event designated ${req.objectName} is currently active in the monitoring catalog. Overall mission risk is ${level} at a score of ${score} out of 100. Operators in affected orbit regimes should maintain heightened awareness and consult the dashboard for full threat details and affected satellite advisories.`;
+            script = `Threat event ${req.objectName} is active with overall mission risk at ${level}, scoring ${score} out of 100. Operators in affected orbit regimes should check the dashboard for full advisory details.`;
             break;
         case 'neo':
         default:
-            script = `This is Orbit Sentinel. Near-Earth object ${req.objectName} is currently being tracked in the proximity catalog. Overall mission risk is ${level} at a score of ${score} out of 100. No specific conjunction advisory data is available at this time. Continue standard monitoring and consult the dashboard for updated orbital parameters.`;
+            script = `Near-Earth object ${req.objectName} is being tracked in the proximity catalog with mission risk at ${level}, scoring ${score} out of 100. Continue standard monitoring and consult the dashboard for updated orbital parameters.`;
             break;
     }
 
@@ -237,7 +227,7 @@ export async function* streamNarrationTokens(
         const userPrompt = buildNarrationContext(req, risk, weather, flares, cmes, neos, topRisk, conjunctions);
         const stream = anthropic.messages.stream({
             model: MODEL,
-            max_tokens: 800,
+            max_tokens: 150,
             system: SYSTEM_PROMPTS[req.objectType],
             messages: [{ role: 'user', content: userPrompt }],
         });
@@ -284,7 +274,7 @@ export async function generateNarrationScript(
 
         const response = await anthropic.messages.create({
             model: MODEL,
-            max_tokens: 800,
+            max_tokens: 150,
             system: SYSTEM_PROMPTS[req.objectType],
             messages: [{ role: 'user', content: userPrompt }],
         });

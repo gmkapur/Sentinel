@@ -131,12 +131,16 @@ export function useObjectNarration(): UseObjectNarrationReturn {
 
         window.speechSynthesis.cancel();
         const u = new SpeechSynthesisUtterance(script);
-        u.rate = 0.92;
-        u.pitch = 0.88;
+        u.rate = 0.95;
+        u.pitch = 1.0;
         const voices = window.speechSynthesis.getVoices();
+        // Prefer high-quality neural/natural voices, prioritised by quality
         const preferred =
-            voices.find((v) => /en-GB|en-US/.test(v.lang) && /Google|Microsoft|Samantha|Daniel/i.test(v.name))
-            ?? voices.find((v) => v.lang.startsWith('en'));
+            voices.find((v) => /en-US|en-GB/.test(v.lang) && /Samantha|Moira/i.test(v.name))
+            ?? voices.find((v) => /en-US/.test(v.lang) && /Google US English/i.test(v.name))
+            ?? voices.find((v) => /en-GB/.test(v.lang) && /Google UK English Female/i.test(v.name))
+            ?? voices.find((v) => /en/.test(v.lang) && /Microsoft.*Natural|Neural/i.test(v.name))
+            ?? voices.find((v) => v.lang.startsWith('en') && v.localService);
         if (preferred) u.voice = preferred;
 
         u.onend = () => { cleanup(); };

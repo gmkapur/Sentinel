@@ -705,11 +705,17 @@ export function createRouter(
 
         try {
             const ttsResponse = await axios.post(
-                `https://api.elevenlabs.io/v1/text-to-speech/${elevenLabsVoice}/stream`,
+                `https://api.elevenlabs.io/v1/text-to-speech/${elevenLabsVoice}/stream?optimize_streaming_latency=4`,
                 {
                     text: script,
-                    model_id: 'eleven_turbo_v2_5',
+                    model_id: 'eleven_flash_v2_5',
                     output_format: 'mp3_44100_128',
+                    voice_settings: {
+                        stability: 0.35,
+                        similarity_boost: 0.75,
+                        style: 0.4,
+                        use_speaker_boost: true,
+                    },
                 },
                 {
                     headers: {
@@ -718,7 +724,7 @@ export function createRouter(
                         Accept: 'audio/mpeg',
                     },
                     responseType: 'stream',
-                    timeout: 30_000,
+                    timeout: 20_000,
                 },
             );
 
@@ -787,11 +793,17 @@ export function createRouter(
 
             // 2. Stream TTS from ElevenLabs
             const ttsResponse = await axios.post(
-                `https://api.elevenlabs.io/v1/text-to-speech/${elevenLabsVoice}/stream`,
+                `https://api.elevenlabs.io/v1/text-to-speech/${elevenLabsVoice}/stream?optimize_streaming_latency=4`,
                 {
                     text: script,
-                    model_id: 'eleven_turbo_v2_5',
+                    model_id: 'eleven_flash_v2_5',
                     output_format: 'mp3_44100_128',
+                    voice_settings: {
+                        stability: 0.35,
+                        similarity_boost: 0.75,
+                        style: 0.4,
+                        use_speaker_boost: true,
+                    },
                 },
                 {
                     headers: {
@@ -800,7 +812,7 @@ export function createRouter(
                         Accept: 'audio/mpeg',
                     },
                     responseType: 'stream',
-                    timeout: 30_000,
+                    timeout: 20_000,
                 },
             );
 
