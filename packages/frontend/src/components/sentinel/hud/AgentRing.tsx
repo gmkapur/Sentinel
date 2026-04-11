@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import React, { useEffect, useRef } from 'react';
 import * as THREE from 'three';
 import type { AgentRingStatus } from '../../../stores/missionStore';
 
@@ -10,6 +10,8 @@ const RIPPLE_COUNT = 6;
 
 type Props = {
     status: AgentRingStatus;
+    /** Written by parent at ~30 fps. Animation loop reads directly — no re-render cost. */
+    amplitudeRef?: React.MutableRefObject<number>;
 };
 
 /** Cheap 1D pseudo-noise for organic displacement (no texture deps). */
@@ -21,7 +23,7 @@ function warp(a: number, t: number): number {
     );
 }
 
-export default function AgentRing({ status }: Props) {
+export default function AgentRing({ status, amplitudeRef }: Props) {
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const frameRef = useRef<number>(0);
     const timeRef = useRef(0);
@@ -230,8 +232,11 @@ export default function AgentRing({ status }: Props) {
             const t = timeRef.current;
             const st = statusRef.current;
 
+            const amp = amplitudeRef ? Math.min(amplitudeRef.current, 1) : 0;
             const intensity =
-                st === 'SPEAKING' ? 0.26 : st === 'ALERT' ? 0.2 : 0.075;
+                st === 'SPEAKING'
+                    ? 0.26 + amp * 0.38
+                    : st === 'ALERT' ? 0.2 : 0.075;
 
             const posArr = geometry.attributes.position.array as Float32Array;
             const colArr = geometry.attributes.color.array as Float32Array;
@@ -249,9 +254,9 @@ export default function AgentRing({ status }: Props) {
 
                 let z = baseZ[i];
                 if (st === 'SPEAKING') {
-                    z +=
-                        Math.sin(t * 16 + i * 0.06) * 0.055
-                        + Math.sin(t * 24 + angle * 4) * 0.03;
+                    const vib = 0.04 + amp * 0.06;
+                    z += Math.sin(t * 16 + i * 0.06) * vib
+                       + Math.sin(t * 24 + angle * 4) * vib * 0.55;
                 }
                 else if (st === 'ALERT') {
                     z += Math.sin(t * 11 + i * 0.05) * 0.04;
@@ -274,8 +279,8 @@ export default function AgentRing({ status }: Props) {
             geometry.attributes.color.needsUpdate = true;
 
             if (st === 'SPEAKING') {
-                material.opacity = 0.42 + (Math.sin(t * 8.5) * 0.5 + 0.5) * 0.52;
-                material.size = 0.019 + (Math.sin(t * 12) * 0.5 + 0.5) * 0.008;
+                material.opacity = 0.42 + (Math.sin(t * 8.5) * 0.5 + 0.5) * 0.32 + amp * 0.28;
+                material.size = 0.019 + (Math.sin(t * 12) * 0.5 + 0.5) * 0.008 + amp * 0.006;
             }
             else if (st === 'ALERT') {
                 material.opacity = 0.62 + (Math.sin(t * 4.2) * 0.5 + 0.5) * 0.32;
@@ -314,7 +319,9 @@ export default function AgentRing({ status }: Props) {
             rippleMeshes.forEach((mesh, k) => {
                 const phase = t * (0.35 + k * 0.12) + k * 0.8;
                 const pulse = 0.55 + Math.sin(phase) * 0.45;
-                mesh.scale.setScalar(1 + Math.sin(phase * 1.3) * (st === 'SPEAKING' ? 0.04 : 0.018));
+                mesh.scale.setScalar(
+                    1 + Math.sin(phase * 1.3) * (st === 'SPEAKING' ? 0.04 + amp * 0.06 : 0.018),
+                );
                 const rm = rippleMats[k];
                 if (st === 'ALERT') {
                     rm.color.setHex(0xe84848);

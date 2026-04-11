@@ -2,11 +2,11 @@ import type { OrbitalRegistryClass } from '@sentinel/shared/src/types';
 
 /** Canonical public demo breakdown (full orbital ecosystem). */
 export const ORBITAL_REGISTRY_CANON = {
-    leo: 4284,
-    meo: 126,
-    geo: 563,
-    stations: 3,
-    debris: 27000,
+    leo: 10_540,
+    meo: 122,
+    geo: 591,
+    stations: 2,
+    debris: 38_700,
 } as const;
 
 export const ORBITAL_REGISTRY_CANON_TOTAL =

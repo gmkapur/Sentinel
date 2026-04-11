@@ -2,6 +2,7 @@ import { Router, type Request, type Response } from 'express';
 import axios from 'axios';
 import { z } from 'zod';
 import { logger } from './logger';
+import type { NarrationRequest } from '@sentinel/shared';
 import prisma from './db';
 
 import {
@@ -166,11 +167,123 @@ const agentPushSchema = z.object({
     timestamp: z.string(),
 });
 
+// ---------------------------------------------------------------------------
+// Threat triangle derivation
+// ---------------------------------------------------------------------------
+
+export interface ThreatTriangle {
+    id: string;
+    name: string;
+    lat: number;
+    lng: number;
+    severity: 'EXTREME' | 'CRITICAL' | 'HIGH' | 'MODERATE';
+    threatType: string;
+}
+
+interface ThreatState {
+    spaceWeather: {
+        xrayClass?: string | null;
+        kpIndex?: number | null;
+        protonFlux?: number | null;
+        solarWindSpeed?: number | null;
+        bz?: number | null;
+    } | null;
+    cmes: Array<{ activityID: string; speed?: number | null; startTime: string }>;
+}
+
+function computeThreatTriangles(state: ThreatState): ThreatTriangle[] {
+    const threats: ThreatTriangle[] = [];
+    const sw = state.spaceWeather;
+    if (!sw) return threats;
+
+    // X-ray flux class → solar flare
+    const xray = sw.xrayClass ?? '';
+    if (xray.startsWith('X')) {
+        threats.push({
+            id: 'flare-x',
+            name: `${xray} SOLAR FLARE`,
+            lat: 14,
+            lng: -102,
+            severity: 'EXTREME',
+            threatType: 'SOLAR_FLARE_XCLASS',
+        });
+    } else if (xray.startsWith('M')) {
+        const cls = parseFloat(xray.slice(1));
+        if (!isNaN(cls) && cls >= 5) {
+            threats.push({
+                id: 'flare-m',
+                name: `${xray} SOLAR FLARE`,
+                lat: 14,
+                lng: -102,
+                severity: 'HIGH',
+                threatType: 'SOLAR_FLARE_MCLASS',
+            });
+        }
+    }
+
+    // Kp index → geomagnetic storm
+    const kp = sw.kpIndex ?? 0;
+    if (kp >= 9) {
+        threats.push({ id: 'geomag-g5', name: 'GEOMAGNETIC STORM G5', lat: 65, lng: 20, severity: 'EXTREME', threatType: 'GEOMAGNETIC_STORM_G5' });
+    } else if (kp >= 7) {
+        threats.push({ id: 'geomag-g4', name: 'GEOMAGNETIC STORM G4', lat: 65, lng: 20, severity: 'CRITICAL', threatType: 'GEOMAGNETIC_STORM_G4' });
+    } else if (kp >= 5) {
+        threats.push({ id: 'geomag-g3', name: 'GEOMAGNETIC STORM G3', lat: 65, lng: 20, severity: 'HIGH', threatType: 'GEOMAGNETIC_STORM_G3' });
+    }
+
+    // Proton flux → SEP or proton event
+    const proton = sw.protonFlux ?? 0;
+    if (proton >= 1000) {
+        threats.push({ id: 'proton', name: 'SOLAR PROTON EVENT', lat: 11, lng: -96, severity: 'EXTREME', threatType: 'PROTON_FLUX' });
+    } else if (proton >= 100) {
+        threats.push({ id: 'sep', name: 'SOLAR ENERGETIC PARTICLE', lat: -15, lng: -48, severity: 'CRITICAL', threatType: 'SOLAR_ENERGETIC_PARTICLE' });
+    } else if (proton >= 10) {
+        threats.push({ id: 'sep', name: 'SOLAR ENERGETIC PARTICLE', lat: -15, lng: -48, severity: 'HIGH', threatType: 'SOLAR_ENERGETIC_PARTICLE' });
+    }
+
+    // Active CMEs
+    const seenCme = new Set<string>();
+    for (const cme of state.cmes) {
+        const speed = cme.speed ?? 0;
+        if (speed >= 2000 && !seenCme.has('extreme-cme')) {
+            seenCme.add('extreme-cme');
+            threats.push({ id: `cme-${cme.activityID}`, name: 'EXTREME CME', lat: 12, lng: -98, severity: 'EXTREME', threatType: 'EXTREME_CME' });
+        } else if (speed >= 1000 && !seenCme.has('cme-halo')) {
+            seenCme.add('cme-halo');
+            threats.push({ id: `cme-${cme.activityID}`, name: 'CME EARTH-DIRECTED', lat: 64, lng: 21, severity: 'HIGH', threatType: 'CME_HALO' });
+        }
+    }
+
+    // Southward IMF (BZ) → magnetosphere compression
+    const bz = sw.bz ?? 0;
+    if (bz < -20) {
+        threats.push({ id: 'mag-compress', name: 'MAGNETOSPHERE COMPRESSION', lat: 1, lng: 104, severity: 'HIGH', threatType: 'MAGNETOSPHERE_COMPRESSION' });
+    }
+
+    // Elevated solar wind → atmospheric drag
+    const wind = sw.solarWindSpeed ?? 0;
+    if (wind > 600) {
+        threats.push({ id: 'atm-drag', name: 'ATMOSPHERIC DRAG SPIKE', lat: 55, lng: 37, severity: 'MODERATE', threatType: 'ATMOSPHERIC_DRAG' });
+    }
+
+    return threats;
+}
+
 export interface RouterDeps {
     broadcast: (event: string, data: unknown) => void;
     getEnrichedPositions: () => SatPosition[];
     getTopRisk: () => SatRiskSummary[];
 }
+
+const narrationRequestBodySchema = z.object({
+    objectType: z.enum(['satellite', 'threat', 'neo']),
+    objectId: z.string().min(1),
+    objectName: z.string().min(1),
+});
+
+/** Minimum ms between narration requests — protects ElevenLabs character limits. */
+const NARRATION_COOLDOWN_MS = 1500;
+let lastNarrationAt = 0;
 
 export function createRouter(
     broadcastOrDeps: ((event: string, data: unknown) => void) | RouterDeps,
@@ -468,6 +581,155 @@ export function createRouter(
     );
 
     // -----------------------------------------------------------------------
+    // POST /api/v1/agent/force-call — proxy to agent (no env guard)
+    // -----------------------------------------------------------------------
+    router.post(
+        '/api/v1/agent/force-call',
+        async (_req: Request, res: Response) => {
+            try {
+                const response = await axios.post(
+                    `${AGENT_URL}/alerts/force-call`,
+                    {},
+                    { timeout: 20_000 },
+                );
+                res.json(response.data);
+            } catch (err: unknown) {
+                const axiosErr = err as {
+                    response?: { data?: { error?: string } };
+                    message?: string;
+                };
+                const message =
+                    axiosErr.response?.data?.error ??
+                    axiosErr.message ??
+                    'Unknown error';
+                res.status(502).json({
+                    error: `Force call failed: ${message}`,
+                });
+            }
+        },
+    );
+
+    // -----------------------------------------------------------------------
+    // POST /api/v1/agent/orbit-suggestion — proxy to agent
+    // -----------------------------------------------------------------------
+    router.post(
+        '/api/v1/agent/orbit-suggestion',
+        async (req: Request, res: Response) => {
+            try {
+                const response = await axios.post(
+                    `${AGENT_URL}/orbit-suggestion`,
+                    req.body,
+                    { timeout: 35_000 },
+                );
+                res.json(response.data);
+            } catch (err: unknown) {
+                const axiosErr = err as {
+                    response?: { data?: { error?: string } };
+                    message?: string;
+                };
+                const message =
+                    axiosErr.response?.data?.error ??
+                    axiosErr.message ??
+                    'Unknown error';
+                res.status(502).json({
+                    error: `Orbit suggestion failed: ${message}`,
+                });
+            }
+        },
+    );
+
+    // -----------------------------------------------------------------------
+    // POST /api/v1/narrate — generate + stream TTS for a clicked globe object
+    // -----------------------------------------------------------------------
+    router.post('/api/v1/narrate', async (req: Request, res: Response) => {
+        const now = Date.now();
+        if (now - lastNarrationAt < NARRATION_COOLDOWN_MS) {
+            res.status(429).json({ error: 'Too many narration requests — wait a moment' });
+            return;
+        }
+
+        const parsed = narrationRequestBodySchema.safeParse(req.body);
+        if (!parsed.success) {
+            res.status(400).json({ error: 'Invalid request body' });
+            return;
+        }
+        const narReq: NarrationRequest = parsed.data;
+
+        const elevenLabsKey   = process.env.ELEVENLABS_API_KEY;
+        const elevenLabsVoice = process.env.ELEVENLABS_VOICE_ID;
+
+        if (!elevenLabsKey || !elevenLabsVoice) {
+            // Return script as JSON so the frontend can display text fallback
+            try {
+                const scriptRes = await axios.post(`${AGENT_URL}/narrate`, narReq, { timeout: 30_000 });
+                res.status(503).json({ error: 'TTS not configured', script: scriptRes.data.script ?? null });
+            } catch {
+                res.status(503).json({ error: 'TTS not configured', script: null });
+            }
+            return;
+        }
+
+        lastNarrationAt = now;
+
+        try {
+            // 1. Get narration script from agent
+            const scriptResponse = await axios.post<{ script: string }>(
+                `${AGENT_URL}/narrate`,
+                narReq,
+                { timeout: 30_000 },
+            );
+            const script = scriptResponse.data.script;
+            if (!script || typeof script !== 'string') {
+                throw new Error('Agent returned empty script');
+            }
+
+            // 2. Stream TTS from ElevenLabs
+            const ttsResponse = await axios.post(
+                `https://api.elevenlabs.io/v1/text-to-speech/${elevenLabsVoice}/stream`,
+                {
+                    text: script,
+                    model_id: 'eleven_turbo_v2_5',
+                    output_format: 'mp3_44100_128',
+                },
+                {
+                    headers: {
+                        'xi-api-key': elevenLabsKey,
+                        'Content-Type': 'application/json',
+                        Accept: 'audio/mpeg',
+                    },
+                    responseType: 'stream',
+                    timeout: 30_000,
+                },
+            );
+
+            // 3. Pipe audio stream directly to response
+            res.setHeader('Content-Type', 'audio/mpeg');
+            res.setHeader('Transfer-Encoding', 'chunked');
+            res.setHeader('Cache-Control', 'no-cache');
+            res.setHeader('X-Narration-Object-Id', narReq.objectId);
+            res.setHeader('X-Narration-Object-Type', narReq.objectType);
+
+            (ttsResponse.data as NodeJS.ReadableStream).pipe(res);
+
+            (ttsResponse.data as NodeJS.ReadableStream).on('error', (err: Error) => {
+                routeLog.error({ err: err.message }, 'ElevenLabs stream error mid-pipe');
+                if (!res.headersSent) {
+                    res.status(502).json({ error: 'TTS stream error' });
+                } else {
+                    res.end();
+                }
+            });
+        } catch (err: unknown) {
+            const axiosErr = err as { response?: { data?: { detail?: string } }; message?: string };
+            const message = axiosErr.response?.data?.detail ?? axiosErr.message ?? 'Unknown error';
+            routeLog.error({ err: message }, 'Narration pipeline failed');
+            if (!res.headersSent) {
+                res.status(502).json({ error: `Narration failed: ${message}` });
+            }
+        }
+    });
+
+    // -----------------------------------------------------------------------
     // GET /api/v1/conjunctions — active conjunctions
     // -----------------------------------------------------------------------
     router.get('/api/v1/conjunctions', (req: Request, res: Response) => {
@@ -593,6 +855,10 @@ export function createRouter(
 
             broadcast('space-weather', payload.spaceWeather);
             broadcast('eonet-events', payload.eonetEvents);
+            broadcast('threat-triangles', computeThreatTriangles({
+                spaceWeather: payload.spaceWeather,
+                cmes: payload.cmes,
+            }));
 
             if (payload.flarePathPredictions && payload.flarePathPredictions.length > 0) {
                 broadcast('flare-path-predictions', payload.flarePathPredictions);
@@ -612,6 +878,14 @@ export function createRouter(
             routeLog.error({ err }, 'Agent push processing failed');
             res.status(500).json({ error: 'Internal processing error' });
         }
+    });
+
+    // -----------------------------------------------------------------------
+    // GET /api/v1/threat-triangles — active threat markers derived from space weather
+    // -----------------------------------------------------------------------
+    router.get('/api/v1/threat-triangles', (_req: Request, res: Response) => {
+        const state = getLatestState();
+        res.json({ threats: computeThreatTriangles(state) });
     });
 
     // -----------------------------------------------------------------------

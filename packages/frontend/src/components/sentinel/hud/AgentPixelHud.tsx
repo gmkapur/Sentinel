@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useMissionStore } from '../../../stores/missionStore';
 import { formatOrbitSuggestionCardText } from '../../../utils/formatOrbitSuggestionCard';
 import AgentRing from './AgentRing';
@@ -6,11 +6,15 @@ import AgentRing from './AgentRing';
 const TEAL = '#14B8A6';
 const LABEL = '#6d7f7c';
 
+interface AgentPixelHudProps {
+    amplitudeRef?: React.MutableRefObject<number>;
+}
+
 /**
  * Left HUD: one fixed column under the ring — speech, situation, orbit suggestion.
  * Layout: `.sentinel-left-agent-column` in app.css (stacks, scrolls, avoids overlap).
  */
-export function AgentPixelHud() {
+export function AgentPixelHud({ amplitudeRef }: AgentPixelHudProps = {}) {
     const outputScrollRef = useRef<HTMLDivElement>(null);
     const prevSpeakingRef = useRef(false);
 
@@ -62,7 +66,7 @@ export function AgentPixelHud() {
             <div className="agent-container sentinel-left-agent-ring shrink-0">
                 <div className={ `relative p-2 ${pulseClass}` }>
                     <div className={ `agent-ring-shell ${alertMode ? 'agent-ring-shell--alert' : ''}` }>
-                        <AgentRing status={ agentStatus } />
+                        <AgentRing status={ agentStatus } amplitudeRef={ amplitudeRef } />
                     </div>
                 </div>
             </div>

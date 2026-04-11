@@ -44,12 +44,6 @@ BEHAVIOR:
 - After answering a question, ask if there is anything else about the alert the operator needs.
 - If the operator confirms they have no more questions, end with: "Stay safe. Orbit Sentinel out." and end the call.
 
-AUTO HANG-UP RULES:
-- After delivering the first message, if the operator does not respond within 8 seconds, say: "No response received. Please check the Orbit Sentinel dashboard for full details. Stay safe. Orbit Sentinel out." Then end the call.
-- If at any point the operator says "no", "no thanks", "that's all", "goodbye", "bye", "thanks", "thank you", or any similar sign-off, immediately respond with "Stay safe. Orbit Sentinel out." and end the call. Do NOT ask additional follow-up questions after a sign-off.
-- Do NOT keep the call going if there is nothing left to discuss. Once you have delivered the briefing and answered any questions, end the call promptly.
-- Maximum conversation length: 2 minutes. If the call is still active after 2 minutes, say: "For additional details, please check your dashboard. Stay safe. Orbit Sentinel out." and end the call.
-
 ALERT CONTEXT (injected per call):
 - Risk Level: {{risk_level}}
 - Risk Score: {{risk_score}}/100
@@ -63,55 +57,52 @@ ALERT CONTEXT (injected per call):
 // but information-dense spoken briefing.
 // ---------------------------------------------------------------------------
 
-function buildFirstMessage(risk: RiskState, brief: MissionBrief): string {
+function buildFirstMessage(risk: RiskState, brief: MissionBrief, dashboardUrl: string): string {
     const parts: string[] = [];
 
-    // Opening -- level + score
+    // Primary threat — stated immediately after the ident
+    const primaryThreat = brief.threats[0] ?? null;
+    const threatClause = primaryThreat ? ` Primary threat: ${primaryThreat}.` : '';
+
+    // Opening — ident, threat, level + score
     parts.push(
-        `This is Orbit Sentinel with an automated ${risk.level} priority alert.` +
-            ` Risk score is ${risk.score} out of 100.` +
+        `This is Orbit Sentinel.${threatClause}` +
+            ` ${risk.level} priority alert — risk score ${risk.score} out of 100.` +
             ` Mission status: ${brief.recommendation}.`,
     );
 
-    // Threats
-    if (brief.threats.length > 0) {
-        const threatList = brief.threats
-            .slice(0, 4)
-            .map((t, i) => `${i + 1}: ${t}`)
-            .join('. ');
-        parts.push(`Active threats. ${threatList}.`);
-    }
-
-    // Risk breakdown -- only mention significant contributors
+    // Why the threat is happening — derive from highest-scoring breakdown contributors
     const bd = risk.breakdown;
-    const contributors: string[] = [];
-    if (bd.flare >= 15) contributors.push(`solar flare at ${bd.flare}`);
-    if (bd.geomagnetic >= 10)
-        contributors.push(`geomagnetic at ${bd.geomagnetic}`);
-    if (bd.radiation >= 10) contributors.push(`radiation at ${bd.radiation}`);
-    if (bd.solarWind >= 5) contributors.push(`solar wind at ${bd.solarWind}`);
-    if (bd.neo >= 5) contributors.push(`near-earth object at ${bd.neo}`);
-    if (bd.cmePath >= 5)
-        contributors.push(`C M E path impact at ${bd.cmePath}`);
-    if (bd.compound >= 10)
-        contributors.push(`compound synergy bonus of ${bd.compound}`);
-    if (contributors.length > 0) {
-        parts.push(`Score breakdown: ${contributors.join(', ')}.`);
+    const causes: string[] = [];
+    if (bd.flare >= 15) causes.push(`an active solar flare (score contribution ${bd.flare})`);
+    if (bd.geomagnetic >= 10) causes.push(`elevated geomagnetic activity (${bd.geomagnetic})`);
+    if (bd.radiation >= 10) causes.push(`high radiation levels (${bd.radiation})`);
+    if (bd.solarWind >= 5) causes.push(`elevated solar wind (${bd.solarWind})`);
+    if (bd.cmePath >= 5) causes.push(`a coronal mass ejection on an Earth-directed path (${bd.cmePath})`);
+    if (bd.neo >= 5) causes.push(`a near-Earth object approach (${bd.neo})`);
+    if (bd.compound >= 10) causes.push(`compound synergy between multiple simultaneous events (+${bd.compound})`);
+
+    if (causes.length > 0) {
+        parts.push(`This threat is driven by ${causes.join(', and ')}.`);
+    } else if (brief.summary) {
+        parts.push(brief.summary);
     }
 
-    // Summary from LLM brief
-    if (brief.summary) {
+    // Additional threat context from LLM summary if causes were also listed
+    if (causes.length > 0 && brief.summary) {
         parts.push(brief.summary);
     }
 
     // Recommended actions
     if (brief.maneuverWindows.length > 0) {
         const actions = brief.maneuverWindows
-            .slice(0, 3)
-            .map((a, i) => `${i + 1}: ${a}`)
+            .slice(0, 2)
             .join('. ');
-        parts.push(`Recommended actions. ${actions}.`);
+        parts.push(`Recommended actions: ${actions}.`);
     }
+
+    // Dashboard
+    parts.push(`For full details, check the Orbit Sentinel dashboard at ${dashboardUrl}.`);
 
     parts.push('Do you have any questions about this alert?');
 
@@ -131,7 +122,7 @@ export async function initiateOutboundCall(
         return null;
     }
 
-    const firstMessage = buildFirstMessage(params.riskState, params.brief);
+    const firstMessage = buildFirstMessage(params.riskState, params.brief, dashboardUrl);
 
     try {
         const response = await axios.post(

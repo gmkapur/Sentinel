@@ -1,16 +1,10 @@
 import { useState } from 'react';
 import { Shield, AlertTriangle, RefreshCw } from 'lucide-react';
-import { AnimatePresence, motion } from 'framer-motion';
+import { motion } from 'framer-motion';
 import { GlassPanel } from '../shared/GlassPanel';
 import { Spinner } from '../shared/Spinner';
 import { useMissionStore } from '../../stores/missionStore';
 import { api } from '../../services/api';
-
-const REC_STYLES = {
-    GO: 'bg-risk-low/20 text-risk-low border-risk-low/30',
-    CAUTION: 'bg-risk-moderate/20 text-risk-moderate border-risk-moderate/30',
-    'NO-GO': 'bg-risk-critical/20 text-risk-critical border-risk-critical/30',
-};
 
 function getConfidenceColor(c: number): string {
     if (c >= 0.8) return 'bg-risk-low';
@@ -50,28 +44,7 @@ export function MissionBriefCard() {
                 </div>
             ) : (
                 <div>
-                    <AnimatePresence mode="wait">
-                        <motion.div
-                            key={brief.recommendation}
-                            initial={{ scale: 0.9, opacity: 0 }}
-                            animate={{ scale: 1, opacity: 1 }}
-                            exit={{ scale: 0.9, opacity: 0 }}
-                            transition={{ duration: 0.2 }}
-                            className="mb-2"
-                        >
-                            <span
-                                className={`inline-block font-mono font-bold text-xs px-2.5 py-1 rounded border ${REC_STYLES[brief.recommendation]} ${
-                                    brief.recommendation === 'NO-GO'
-                                        ? 'critical-pulse'
-                                        : ''
-                                }`}
-                            >
-                                {brief.recommendation}
-                            </span>
-                        </motion.div>
-                    </AnimatePresence>
-
-                    <p className="text-sm text-text-primary leading-relaxed mt-2">
+                    <p className="text-sm text-text-primary leading-relaxed">
                         {brief.summary}
                     </p>
 

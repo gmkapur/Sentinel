@@ -22,7 +22,6 @@ import {
     runThreatChildAnimate,
 } from '../../globe/threatAndSatelliteAssets';
 import { EARTH_RADIUS_KM } from '../../utils/constants';
-import { DUMMY_WEATHER_EVENTS } from '../../mocks/dummyWeatherEvents';
 import type { SatPosition } from '@sentinel/shared/src/types';
 
 export const DEFAULT_GLOBE_POV = { lat: 18, lng: 0, altitude: 2.5 };
@@ -210,6 +209,7 @@ export const GlobeView = forwardRef<GlobeViewHandle, GlobeViewProps>(
         const globeDriftFrozen = useMissionStore((s) => s.globeDriftFrozen);
         const globeLinkHighlights = useMissionStore((s) => s.globeLinkHighlights);
         const focusedWeatherEventId = useMissionStore((s) => s.focusedWeatherEventId);
+        const activeThreatTriangles = useMissionStore((s) => s.activeThreatTriangles);
 
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const globeRef = useRef<any>(null);
@@ -492,7 +492,7 @@ export const GlobeView = forwardRef<GlobeViewHandle, GlobeViewProps>(
 
         const weatherEventMarkers = useMemo(
             () =>
-                DUMMY_WEATHER_EVENTS.map((evt) => ({
+                activeThreatTriangles.map((evt) => ({
                     id: `wx-marker-${evt.id}`,
                     wxId: evt.id,
                     type: 'weather-event' as const,
@@ -510,6 +510,7 @@ export const GlobeView = forwardRef<GlobeViewHandle, GlobeViewProps>(
                     isFocused: focusedWeatherEventId === evt.id,
                 })),
             [
+                activeThreatTriangles,
                 focusedWeatherEventId,
                 globeLinkHighlights.weatherAffected,
                 globeLinkHighlights.weatherPotential,

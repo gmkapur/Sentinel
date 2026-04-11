@@ -42,7 +42,6 @@ import {
     saveMissionBrief,
 } from './dataCache';
 import { generateFlarePathPredictions } from './flarePathPredictor';
-import { checkAndAlert } from './phoneAlert';
 import { injectDemoData } from './demoData';
 
 import type { AgentPushPayload } from '@sentinel/shared';
@@ -121,10 +120,7 @@ async function runEvaluationCycle(): Promise<void> {
             await saveMissionBrief(brief);
         }
 
-        // 3. Check phone alerts
-        await checkAndAlert(risk, previousRisk, brief);
-
-        // 4. Build push payload
+        // 3. Build push payload
         const weather = await buildSpaceWeatherState();
         const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
         const [flares, cmes, neos, eonetEvents] = await Promise.all([

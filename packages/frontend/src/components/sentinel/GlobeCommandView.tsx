@@ -1,4 +1,6 @@
-import { useRef, useCallback, useEffect, useMemo } from 'react';
+import { useRef, useCallback, useEffect, useMemo, useState } from 'react';
+import { useObjectNarration } from '../../hooks/useObjectNarration';
+import { Phone, PhoneCall, PhoneOff } from 'lucide-react';
 import { GlobeView, type GlobeViewHandle } from '../globe/GlobeView';
 import {
     useMissionStore,
@@ -9,7 +11,6 @@ import {
 import { buildOrbitalThreatPolygons } from '../../globe/threatOrbitalZones';
 import { generateInclinedOrbitPath } from '../../globe/orbitPathUtils';
 import { useAnimatedNumber } from '../../hooks/useAnimatedNumber';
-import { DUMMY_WEATHER_EVENTS } from '../../mocks/dummyWeatherEvents';
 import {
     satellitesLinkedToWeather,
     weatherLinkedToSatellite,
@@ -64,8 +65,31 @@ function selectedAssetFromSatellite(
     };
 }
 
+type CallStatus = 'idle' | 'calling' | 'success' | 'error';
+
 export function GlobeCommandView() {
     const globeRef = useRef<GlobeViewHandle>(null);
+    const [callStatus, setCallStatus] = useState<CallStatus>('idle');
+    const callResetTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+    const { narrate, cancel: cancelNarration, amplitude } = useObjectNarration();
+    const amplitudeRef = useRef(0);
+    // Keep ref in sync without causing re-renders in the Three.js animation loop
+    useEffect(() => { amplitudeRef.current = amplitude; });
+
+    const handleForceCall = useCallback(async () => {
+        if (callStatus === 'calling') return;
+        if (callResetTimer.current) clearTimeout(callResetTimer.current);
+        setCallStatus('calling');
+        try {
+            await api.forceCall();
+            setCallStatus('success');
+        } catch {
+            setCallStatus('error');
+        } finally {
+            callResetTimer.current = setTimeout(() => setCallStatus('idle'), 3000);
+        }
+    }, [callStatus]);
 
     const threatLevel = useMissionStore((s) => s.threatLevel);
     const threatBarPct = useMissionStore((s) => s.threatBarPct);
@@ -76,6 +100,7 @@ export function GlobeCommandView() {
     const globeDriftFrozen = useMissionStore((s) => s.globeDriftFrozen);
     const globeLinkHighlights = useMissionStore((s) => s.globeLinkHighlights);
     const focusedWeatherEventId = useMissionStore((s) => s.focusedWeatherEventId);
+    const activeThreatTriangles = useMissionStore((s) => s.activeThreatTriangles);
     const weatherSearchOpen = useMissionStore((s) => s.weatherSearchOpen);
     const setWeatherSearchOpen = useMissionStore((s) => s.setWeatherSearchOpen);
     const overlaySolarFlare = useMissionStore((s) => s.overlaySolarFlare);
@@ -123,8 +148,8 @@ export function GlobeCommandView() {
     const riskDisplay = useAnimatedNumber(liveStats.atRiskAssets, 800);
 
     const focusedWeather = useMemo(
-        () => DUMMY_WEATHER_EVENTS.find((e) => e.id === focusedWeatherEventId) ?? null,
-        [focusedWeatherEventId]
+        () => activeThreatTriangles.find((e) => e.id === focusedWeatherEventId) ?? null,
+        [activeThreatTriangles, focusedWeatherEventId]
     );
 
     const focusSatellite = useCallback((sat: SatPosition) => {
@@ -134,7 +159,7 @@ export function GlobeCommandView() {
         st.setOrbitSuggestionLoading(false);
         st.setOrbitSuggestionResult(null);
         st.setOrbitPaths({ original: null, suggested: null });
-        const { affected, potential } = weatherLinkedToSatellite(sat, DUMMY_WEATHER_EVENTS);
+        const { affected, potential } = weatherLinkedToSatellite(sat, useMissionStore.getState().activeThreatTriangles);
         st.setGlobeDriftFrozen(true);
         st.setFocusedWeatherEventId(null);
         st.setGlobeLinkHighlights({
@@ -152,10 +177,11 @@ export function GlobeCommandView() {
             { lat: sat.lat, lng: sat.lng, altitudeKm: sat.alt },
             { ms: 900 }
         );
-    }, []);
+        narrate({ objectType: 'satellite', objectId: String(sat.id), objectName: sat.name });
+    }, [narrate]);
 
     const focusWeatherById = useCallback((eventId: string) => {
-        const ev = DUMMY_WEATHER_EVENTS.find((e) => e.id === eventId);
+        const ev = useMissionStore.getState().activeThreatTriangles.find((e) => e.id === eventId);
         if (!ev) return;
         const st = useMissionStore.getState();
         st.setTacticalLinkArcs([]);
@@ -182,12 +208,14 @@ export function GlobeCommandView() {
             { lat: ev.lat, lng: ev.lng, altitude: 0.48 },
             900
         );
-    }, []);
+        narrate({ objectType: 'threat', objectId: ev.threatType ?? ev.id, objectName: ev.name });
+    }, [narrate]);
 
     const resetView = useCallback(() => {
         globeRef.current?.resetPov(600);
         useMissionStore.getState().clearGlobeInteraction();
-    }, []);
+        cancelNarration();
+    }, [cancelNarration]);
 
     useEffect(() => {
         const onKey = (e: KeyboardEvent) => {
@@ -224,9 +252,10 @@ export function GlobeCommandView() {
             const { weatherAffected, weatherPotential } = cur.globeLinkHighlights;
             const relAlt = sat.alt / EARTH_RADIUS_KM;
             const ids = [...weatherAffected, ...weatherPotential];
+            const triangles = cur.activeThreatTriangles;
             const arcs: CinematicArcPulse[] = ids
                 .map((id) => {
-                    const ev = DUMMY_WEATHER_EVENTS.find((e) => e.id === id);
+                    const ev = triangles.find((e) => e.id === id);
                     if (!ev) return null;
                     return {
                         id: `tactical-${id}`,
@@ -242,10 +271,10 @@ export function GlobeCommandView() {
             cur.setTacticalLinkArcs(arcs);
 
             const namesA = weatherAffected
-                .map((id) => DUMMY_WEATHER_EVENTS.find((e) => e.id === id)?.name)
+                .map((id) => triangles.find((e) => e.id === id)?.name)
                 .filter(Boolean) as string[];
             const namesP = weatherPotential
-                .map((id) => DUMMY_WEATHER_EVENTS.find((e) => e.id === id)?.name)
+                .map((id) => triangles.find((e) => e.id === id)?.name)
                 .filter(Boolean) as string[];
             let summary = `Situation — ${sat.name} @ ${Math.round(sat.alt)} KM. `;
             if (namesA.length) {
@@ -263,7 +292,7 @@ export function GlobeCommandView() {
 
             const primaryId = weatherAffected[0] ?? weatherPotential[0];
             const primaryEv = primaryId
-                ? DUMMY_WEATHER_EVENTS.find((e) => e.id === primaryId)
+                ? triangles.find((e) => e.id === primaryId)
                 : null;
             cur.setOrbitSuggestionLoading(true);
             const body = {
@@ -326,13 +355,13 @@ export function GlobeCommandView() {
     const showAsset = zoomState === 'ASSET_LOCK' && selectedAsset;
 
     const weatherById = useCallback(
-        (id: string) => DUMMY_WEATHER_EVENTS.find((e) => e.id === id),
+        (id: string) => useMissionStore.getState().activeThreatTriangles.find((e) => e.id === id),
         []
     );
 
     return (
         <div className="relative h-screen w-screen overflow-hidden bg-[#030508] font-mono text-[#e8e8e8]">
-            <AgentPixelHud />
+            <AgentPixelHud amplitudeRef={ amplitudeRef } />
             <div className="globe-stage absolute inset-0 globe-vm-OPTICAL">
                 <GlobeView
                     ref={ globeRef }
@@ -701,6 +730,45 @@ export function GlobeCommandView() {
                     <span style={ { color: `${TEAL}99` } }>□</span> NOMINAL
                 </div>
             </div>
+
+            <button
+                type="button"
+                title="Force voice call"
+                className="pointer-events-auto absolute bottom-4 right-4 z-50 flex h-9 w-9 items-center justify-center rounded-full border transition-all duration-150"
+                style={ {
+                    borderColor:
+                        callStatus === 'success'
+                            ? 'rgba(20,184,166,0.7)'
+                            : callStatus === 'error'
+                              ? 'rgba(239,68,68,0.7)'
+                              : 'rgba(20,184,166,0.35)',
+                    background:
+                        callStatus === 'success'
+                            ? 'rgba(20,184,166,0.15)'
+                            : callStatus === 'error'
+                              ? 'rgba(239,68,68,0.12)'
+                              : 'rgba(3,5,10,0.75)',
+                    color:
+                        callStatus === 'success'
+                            ? TEAL
+                            : callStatus === 'error'
+                              ? '#EF4444'
+                              : callStatus === 'calling'
+                                ? TEAL
+                                : `${TEAL}88`,
+                    opacity: callStatus === 'calling' ? 0.7 : 1,
+                    cursor: callStatus === 'calling' ? 'not-allowed' : 'pointer',
+                } }
+                onClick={ handleForceCall }
+            >
+                { callStatus === 'calling' ? (
+                    <PhoneCall size={ 15 } className="animate-pulse" />
+                ) : callStatus === 'error' ? (
+                    <PhoneOff size={ 15 } />
+                ) : (
+                    <Phone size={ 15 } />
+                ) }
+            </button>
         </div>
     );
 }

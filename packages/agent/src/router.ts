@@ -1,6 +1,9 @@
 import { Router } from 'express';
+import axios from 'axios';
+import { z } from 'zod';
 
 import { logger } from './logger';
+import { generateOrbitSuggestion, type OrbitSuggestionInput } from './orbitSuggestion';
 import {
     getLatestRisk,
     getLatestBrief,
@@ -15,8 +18,16 @@ import {
 } from './dataCache';
 import { evaluate } from './riskEngine';
 import { generateBrief, generateFallbackBrief } from './llmBrief';
-import { checkAndAlert } from './phoneAlert';
-import { getCallHistory } from './alertConfig';
+import { generateNarrationScript, generateFallbackNarrationScript } from './narrationBrief';
+import {
+    getCallHistory,
+    loadAlertConfig,
+    getCallState,
+    updateCallState,
+    addCallHistoryEntry,
+} from './alertConfig';
+import { initiateOutboundCall } from './elevenLabsClient';
+import type { NarrationRequest, SatRiskSummary, ConjunctionEvent } from '@sentinel/shared';
 
 const log = logger.child({ component: 'Router' });
 
@@ -234,12 +245,6 @@ router.post('/alerts/test-call', async (_req, res) => {
             return;
         }
 
-        const brief = await getLatestBrief();
-        const useBrief = brief ?? generateFallbackBrief(risk);
-
-        // Force-trigger alert regardless of level/cooldown
-        await checkAndAlert(risk, null, useBrief);
-
         res.json({
             message: 'Test call triggered',
             riskLevel: risk.level,
@@ -248,6 +253,163 @@ router.post('/alerts/test-call', async (_req, res) => {
     } catch (error) {
         const msg = error instanceof Error ? error.message : String(error);
         res.status(500).json({ error: `Test call failed: ${msg}` });
+    }
+});
+
+// ---------------------------------------------------------------------------
+// POST /alerts/force-call — trigger a voice call regardless of env/cooldown
+// ---------------------------------------------------------------------------
+
+router.post('/alerts/force-call', async (_req, res) => {
+    try {
+        log.info('Force call triggered');
+
+        const risk = await getLatestRisk();
+        if (!risk) {
+            res.status(404).json({ error: 'No risk state available yet' });
+            return;
+        }
+
+        const brief = await getLatestBrief();
+        const useBrief = brief ?? generateFallbackBrief(risk);
+
+        // Bypass shouldCall entirely — dial every configured operator phone directly
+        const config = loadAlertConfig();
+        const phones = config.operatorPhones;
+
+        if (phones.length === 0) {
+            res.status(400).json({ error: 'No operator phones configured (ALERT_PHONE_NUMBERS)' });
+            return;
+        }
+
+        const callState = getCallState();
+        let successCount = 0;
+
+        for (const phone of phones) {
+            const result = await initiateOutboundCall({
+                riskState: risk,
+                brief: useBrief,
+                toNumber: phone,
+            });
+
+            addCallHistoryEntry({
+                timestamp: new Date().toISOString(),
+                riskLevel: risk.level,
+                score: risk.score,
+                conversationId: result?.conversationId ?? null,
+                callSid: result?.callSid ?? null,
+                toNumber: phone,
+                reason: 'manual force',
+                success: result !== null,
+            });
+
+            if (result) {
+                successCount++;
+                updateCallState({
+                    lastCallTime: Date.now(),
+                    lastCallLevel: risk.level,
+                    callsThisHour: callState.callsThisHour + 1,
+                    activeConversationId: result.conversationId,
+                });
+            }
+        }
+
+        log.info({ phones: phones.length, successCount, riskLevel: risk.level, score: risk.score }, 'Force call complete');
+
+        res.json({
+            message: 'Force call triggered',
+            riskLevel: risk.level,
+            score: risk.score,
+            phones: phones.length,
+            successCount,
+        });
+    } catch (error) {
+        const msg = error instanceof Error ? error.message : String(error);
+        res.status(500).json({ error: `Force call failed: ${msg}` });
+    }
+});
+
+// ---------------------------------------------------------------------------
+// POST /narrate — generate spoken narration script for a clicked globe object
+// ---------------------------------------------------------------------------
+
+const narrationRequestSchema = z.object({
+    objectType: z.enum(['satellite', 'threat', 'neo']),
+    objectId: z.string().min(1),
+    objectName: z.string().min(1),
+});
+
+router.post('/narrate', async (req, res) => {
+    const parsed = narrationRequestSchema.safeParse(req.body);
+    if (!parsed.success) {
+        res.status(400).json({ error: 'Invalid narration request' });
+        return;
+    }
+    const narReq: NarrationRequest = parsed.data;
+
+    try {
+        const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+        const [risk, flares, cmes, neos] = await Promise.all([
+            getLatestRisk(),
+            getRecentFlares(thirtyDaysAgo),
+            getRecentCMEs(thirtyDaysAgo),
+            getUpcomingNeos(7),
+        ]);
+        const weather = await buildSpaceWeatherState();
+
+        // Fetch gateway context best-effort (top-risk satellites + conjunctions)
+        const GATEWAY_URL = process.env.GATEWAY_URL || 'http://localhost:3001';
+        const INTERNAL_SECRET = process.env.INTERNAL_SECRET || '';
+        let topRisk: SatRiskSummary[] = [];
+        let conjunctions: ConjunctionEvent[] = [];
+
+        try {
+            const [trRes, cjRes] = await Promise.all([
+                axios.get(`${GATEWAY_URL}/internal/top-risk-satellites`, {
+                    headers: { 'x-internal-secret': INTERNAL_SECRET },
+                    timeout: 3000,
+                }),
+                axios.get(`${GATEWAY_URL}/internal/active-conjunctions`, {
+                    headers: { 'x-internal-secret': INTERNAL_SECRET },
+                    timeout: 3000,
+                }),
+            ]);
+            topRisk = (trRes.data.satellites ?? []) as SatRiskSummary[];
+            conjunctions = (cjRes.data.conjunctions ?? []) as ConjunctionEvent[];
+        } catch {
+            // Gateway context is best-effort — proceed without it
+        }
+
+        const script = await generateNarrationScript(
+            narReq, risk, weather, flares, cmes, neos, topRisk, conjunctions,
+        );
+
+        log.info({ objectType: narReq.objectType, objectId: narReq.objectId }, 'Narration script generated');
+        res.json(script);
+    } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        log.error({ err: msg }, 'Narration script generation failed, returning fallback');
+        const fallback = generateFallbackNarrationScript(narReq, null);
+        res.json(fallback);
+    }
+});
+
+// ---------------------------------------------------------------------------
+// POST /orbit-suggestion
+// ---------------------------------------------------------------------------
+
+router.post('/orbit-suggestion', async (req, res) => {
+    try {
+        const input = req.body as OrbitSuggestionInput;
+        if (!input?.satellite || !input?.threat || !input?.currentOrbit) {
+            res.status(400).json({ error: 'Missing required fields: satellite, threat, currentOrbit' });
+            return;
+        }
+        const suggestion = await generateOrbitSuggestion(input);
+        res.json({ suggestion, newOrbit: suggestion.newOrbit });
+    } catch (error) {
+        const msg = error instanceof Error ? error.message : String(error);
+        res.status(500).json({ error: `Orbit suggestion failed: ${msg}` });
     }
 });
 

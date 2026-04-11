@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, Sun, Moon, AlertTriangle, Shield, Star } from 'lucide-react';
+import { X, Sun, Moon, AlertTriangle, Shield, Star, Volume2, VolumeX } from 'lucide-react';
 import type { SatPosition, SatRiskBreakdown } from '@sentinel/shared/src/types';
 import { getRiskLevelColor } from '../../utils/colors';
 import { formatCoord, formatAlt } from '../../utils/formatters';
@@ -10,6 +10,8 @@ import { useWatchlistStore } from '../../stores/watchlistStore';
 interface Props {
     satellite: SatPosition;
     onClose: () => void;
+    onNarrate?: (objectId: string, objectName: string) => void;
+    isNarrating?: boolean;
 }
 
 // Uses relative URL — Vite proxy forwards /api to the gateway
@@ -65,14 +67,14 @@ function BreakdownBar({
     );
 }
 
-export function SatelliteDetailPanel({ satellite, onClose }: Props) {
+export function SatelliteDetailPanel({ satellite, onClose, onNarrate, isNarrating }: Props) {
     const [breakdown, setBreakdown] = useState<SatRiskBreakdown | null>(null);
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
         setLoading(true);
         setBreakdown(null);
-        fetch(`/api/satellites/${satellite.id}/risk`)
+        fetch(`/api/v1/satellites/${satellite.id}/risk`)
             .then((res) => {
                 if (!res.ok) throw new Error('Not found');
                 return res.json();
@@ -124,6 +126,19 @@ export function SatelliteDetailPanel({ satellite, onClose }: Props) {
                                 fill={isWatched ? 'currentColor' : 'none'}
                             />
                         </button>
+                        {onNarrate && (
+                            <button
+                                onClick={() =>
+                                    isNarrating
+                                        ? onNarrate('', '')
+                                        : onNarrate(String(satellite.id), satellite.name)
+                                }
+                                className={`transition-colors p-0.5 ${isNarrating ? 'text-accent animate-pulse' : 'text-text-muted hover:text-accent'}`}
+                                title={isNarrating ? 'Stop narration' : 'Narrate this satellite'}
+                            >
+                                {isNarrating ? <VolumeX size={14} /> : <Volume2 size={14} />}
+                            </button>
+                        )}
                         <button
                             onClick={onClose}
                             className="text-text-muted hover:text-text-primary transition-colors p-0.5"

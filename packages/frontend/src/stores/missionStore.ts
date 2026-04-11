@@ -126,6 +126,15 @@ export interface ActiveThreat {
     lng?: number;
 }
 
+export interface ThreatTriangle {
+    id: string;
+    name: string;
+    lat: number;
+    lng: number;
+    severity: 'EXTREME' | 'CRITICAL' | 'HIGH' | 'MODERATE';
+    threatType?: string;
+}
+
 export interface SelectedAsset {
     id: string;
     name: string;
@@ -214,9 +223,13 @@ interface MissionStore {
     phoneLog: PhoneCallLine[];
     liveStats: LiveStats;
     globeHud: GlobeHud;
+    /** NORAD ID / threatType / NEO id of the object currently being narrated. Null when silent. */
+    activeNarrationId: string | null;
     /** When true, globe auto-rotation stays off until cleared (object focus). */
     globeDriftFrozen: boolean;
     globeLinkHighlights: GlobeLinkHighlights;
+    /** Threat triangle markers driven by gateway space weather data. */
+    activeThreatTriangles: ThreatTriangle[];
     /** Dummy weather marker id when a danger icon is focused. */
     focusedWeatherEventId: string | null;
     tacticalLinkArcs: CinematicArcPulse[];
@@ -321,6 +334,7 @@ interface MissionStore {
     setZoomState: (z: ZoomState) => void;
     setSelectedAsset: (asset: SelectedAsset | null) => void;
     setAgentSpeaking: (v: boolean) => void;
+    setActiveNarrationId: (id: string | null) => void;
     setAgentRingTone: (t: 'nominal' | 'warning' | 'critical') => void;
     setCallStatus: (s: CallStatus) => void;
     setLiveStats: (partial: Partial<LiveStats>) => void;
@@ -384,6 +398,7 @@ interface MissionStore {
     toggleWeatherCatalogEvent: (id: string) => void;
     clearWeatherCatalogSelection: () => void;
 
+    setThreatTriangles: (threats: ThreatTriangle[]) => void;
     setAlertNumber: (n: string) => void;
     resetUiToNominal: () => void;
 }
@@ -434,6 +449,7 @@ export const useMissionStore = create<MissionStore>((set, get) => ({
     zoomState: 'OVERVIEW',
     selectedAsset: null,
     agentSpeaking: false,
+    activeNarrationId: null,
     agentStatus: 'IDLE',
     agentRingTone: 'nominal',
     callStatus: 'IDLE',
@@ -447,6 +463,7 @@ export const useMissionStore = create<MissionStore>((set, get) => ({
     globeHud: { altitudeKm: 847, zoomMul: 1 },
     globeDriftFrozen: false,
     globeLinkHighlights: EMPTY_GLOBE_LINKS,
+    activeThreatTriangles: [],
     focusedWeatherEventId: null,
     tacticalLinkArcs: [],
     assetSituationSummary: null,
@@ -613,6 +630,7 @@ export const useMissionStore = create<MissionStore>((set, get) => ({
             agentSpeaking,
             agentStatus: computeAgentRingStatus(s.threatLevel, agentSpeaking),
         })),
+    setActiveNarrationId: (activeNarrationId) => set({ activeNarrationId }),
     setAgentRingTone: (agentRingTone) => set({ agentRingTone }),
     setCallStatus: (callStatus) => set({ callStatus }),
     setLiveStats: (partial) =>
@@ -790,6 +808,8 @@ export const useMissionStore = create<MissionStore>((set, get) => ({
         }),
     clearWeatherCatalogSelection: () =>
         set({ activeWeatherEventIds: [], weatherCatalogDots: [] }),
+
+    setThreatTriangles: (activeThreatTriangles) => set({ activeThreatTriangles }),
 
     setAlertNumber: (alertNumber) => {
         if (typeof window !== 'undefined') {

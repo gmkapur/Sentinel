@@ -10,6 +10,7 @@ import type {
     ConjunctionEvent,
     FlarePathPrediction,
 } from '@sentinel/shared/src/types';
+import type { ThreatTriangle } from '../stores/missionStore';
 
 export function useSocket(): void {
     useEffect(() => {
@@ -27,6 +28,7 @@ export function useSocket(): void {
             setWeather,
             setConjunctions,
             setFlarePathPredictions,
+            setThreatTriangles,
         } = useMissionStore.getState();
 
         socket.on('connect', () => {
@@ -60,6 +62,10 @@ export function useSocket(): void {
 
         socket.on('flare-path-predictions', (data: FlarePathPrediction[]) => {
             setFlarePathPredictions(data);
+        });
+
+        socket.on('threat-triangles', (data: ThreatTriangle[]) => {
+            setThreatTriangles(data);
         });
 
         socket.on('conjunction-alerts', (alerts: ConjunctionEvent[]) => {
@@ -112,6 +118,7 @@ export function useSocket(): void {
             socket.off('conjunction-alerts');
             socket.off('satellite-risk-alerts');
             socket.off('flare-path-predictions');
+            socket.off('threat-triangles');
             disconnectSocket();
         };
     }, []);

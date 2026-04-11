@@ -269,3 +269,24 @@ export interface NeoProximityDetail {
     score: number;
     isPotentiallyHazardous: boolean;
 }
+
+// ---------------------------------------------------------------------------
+// Narration
+// ---------------------------------------------------------------------------
+
+export interface NarrationRequest {
+    objectType: 'satellite' | 'threat' | 'neo';
+    /** NORAD ID string for satellites, threatType key for threats, NEO id for neos. */
+    objectId: string;
+    objectName: string;
+}
+
+/** Returned by the agent's POST /narrate endpoint. Not streamed to the browser. */
+export interface NarrationScript {
+    objectType: NarrationRequest['objectType'];
+    objectId: string;
+    objectName: string;
+    /** Plain spoken prose, TTS-optimised. No markdown, no bullets. Max ~400 words. */
+    script: string;
+    generatedAt: string;
+}

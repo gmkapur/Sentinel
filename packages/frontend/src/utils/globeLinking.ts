@@ -1,5 +1,5 @@
 import type { SatPosition } from '@sentinel/shared/src/types';
-import type { DummyWeatherEvent } from '../mocks/dummyWeatherEvents';
+import type { ThreatTriangle } from '../stores/missionStore';
 
 /** Great-circle angular distance (degrees) between subsatellite / surface points. */
 export function surfaceAngularDistanceDeg(
@@ -53,7 +53,7 @@ export function satellitesLinkedToWeather(
 
 export function weatherLinkedToSatellite(
     sat: SatPosition,
-    events: DummyWeatherEvent[],
+    events: ThreatTriangle[],
     opts?: { maxAffected?: number; maxPotential?: number }
 ): { affected: string[]; potential: string[] } {
     const maxA = opts?.maxAffected ?? 5;

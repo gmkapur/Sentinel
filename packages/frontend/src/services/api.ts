@@ -1,22 +1,28 @@
 import { USE_TEMP_DATA_ONLY } from '../config/dataSource';
 import type { OrbitSuggestionApiResponse } from '../types/orbitSuggestion';
+import type { ThreatTriangle } from '../stores/missionStore';
 import type {
     RiskState,
     SpaceWeatherState,
     MissionBrief,
     SatPosition,
     AlertRecord,
+    NarrationRequest,
 } from '@sentinel/shared/src/types';
 
 export interface StatusResponse {
-    risk: RiskState;
+    risk: RiskState | null;
     brief: MissionBrief | null;
-    spaceWeather: SpaceWeatherState;
+    spaceWeather: SpaceWeatherState | null;
     satelliteCount: number;
-    lastAgentUpdate: string;
+    lastAgentUpdate: string | null;
 }
 
 export interface SatellitesResponse {
+    total: number;
+    page: number;
+    perPage: number;
+    totalPages: number;
     count: number;
     satellites: SatPosition[];
 }
@@ -30,14 +36,17 @@ async function fetchJson<T>(url: string, options?: RequestInit): Promise<T> {
 }
 
 export const api = {
-    getStatus: () => fetchJson<StatusResponse>('/api/status'),
-    getSatellites: () => fetchJson<SatellitesResponse>('/api/satellites'),
-    getAlerts: () => fetchJson<AlertRecord[]>('/api/alerts'),
-    getSpaceWeather: () => fetchJson<SpaceWeatherState>('/api/space-weather'),
-    getBrief: () => fetchJson<MissionBrief>('/api/agent/brief'),
+    getStatus: () => fetchJson<StatusResponse>('/api/v1/status'),
+    getSatellites: (page = 1) =>
+        fetchJson<SatellitesResponse>(`/api/v1/satellites?page=${page}`),
+    getAlerts: () => fetchJson<AlertRecord[]>('/api/v1/alerts'),
+    getSpaceWeather: () => fetchJson<SpaceWeatherState>('/api/v1/space-weather'),
+    getBrief: () => fetchJson<MissionBrief>('/api/v1/agent/brief'),
     regenerateBrief: () =>
-        fetchJson<MissionBrief>('/api/agent/brief', { method: 'POST' }),
-    getAgentHealth: () => fetchJson<any>('/api/agent/health'),
+        fetchJson<MissionBrief>('/api/v1/agent/brief', { method: 'POST' }),
+    getAgentHealth: () => fetchJson<any>('/api/v1/agent/health'),
+    getThreatTriangles: () =>
+        fetchJson<{ threats: ThreatTriangle[] }>('/api/v1/threat-triangles'),
     postOrbitSuggestion: async (body: unknown): Promise<OrbitSuggestionApiResponse> => {
         if (USE_TEMP_DATA_ONLY) {
             return {
@@ -67,7 +76,7 @@ export const api = {
                 },
             };
         }
-        const res = await fetch('/api/orbit-suggestion', {
+        const res = await fetch('/api/v1/agent/orbit-suggestion', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(body),
@@ -79,12 +88,34 @@ export const api = {
         return data;
     },
 
-    postCall: async (body: { to?: string; test?: boolean }) => {
-        if (USE_TEMP_DATA_ONLY) {
-            return { ok: true as const, sid: 'TEMP_DATA_NO_CALL' };
+    forceCall: async () => {
+        const res = await fetch('/api/v1/agent/force-call', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+        });
+        let data: { message?: string; riskLevel?: string; score?: number; error?: string } = {};
+        try {
+            data = (await res.json()) as typeof data;
+        } catch {
+            /* non-JSON error body */
         }
+        if (!res.ok) {
+            throw new Error(data.error || `Force call failed: ${res.status}`);
+        }
+        return data;
+    },
 
-        const res = await fetch('/api/call', {
+    /** Returns a raw Response whose body is a streaming audio/mpeg. Caller handles abort. */
+    narrate: (req: NarrationRequest, signal?: AbortSignal): Promise<Response> =>
+        fetch('/api/v1/narrate', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(req),
+            signal,
+        }),
+
+    postCall: async (body: { to?: string; test?: boolean }) => {
+        const res = await fetch('/api/v1/agent/test-call', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(body),
