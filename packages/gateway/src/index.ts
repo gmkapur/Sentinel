@@ -1,27 +1,107 @@
 import 'dotenv/config';
+
+import { createServer } from 'http';
+
 import express from 'express';
 import cors from 'cors';
-import { createServer } from 'http';
 import { Server } from 'socket.io';
+
+import prisma, { disconnectDb } from './db';
+import { hydrateFromDb } from './agentState';
+import { createRouter } from './routes';
+import { startTleRefreshLoop, propagateAll } from './satellites';
+
+// ---------------------------------------------------------------------------
+// Server setup
+// ---------------------------------------------------------------------------
 
 const app = express();
 const httpServer = createServer(app);
 const io = new Server(httpServer, {
     cors: { origin: '*' },
 });
+
 const PORT = process.env.GATEWAY_PORT || 3001;
 
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: '1mb' }));
 
-app.get('/api/status', (_req, res) => {
-    res.json({ status: 'ok', uptime: process.uptime() });
-});
+// ---------------------------------------------------------------------------
+// Broadcast helper (injected into routes)
+// ---------------------------------------------------------------------------
+
+function broadcast(event: string, data: unknown): void {
+    io.emit(event, data);
+}
+
+// ---------------------------------------------------------------------------
+// Routes
+// ---------------------------------------------------------------------------
+
+const router = createRouter(broadcast);
+app.use(router);
+
+// ---------------------------------------------------------------------------
+// Socket.io connection handling
+// ---------------------------------------------------------------------------
 
 io.on('connection', (socket) => {
-    console.log(`Client connected: ${socket.id}`);
+    console.log(`[Socket] Client connected: ${socket.id}`);
+
+    const positions = propagateAll();
+    socket.emit('satellite-positions', positions);
+
+    socket.on('disconnect', () => {
+        console.log(`[Socket] Client disconnected: ${socket.id}`);
+    });
 });
 
-httpServer.listen(PORT, () => {
-    console.log(`Gateway service running on port ${PORT}`);
+// ---------------------------------------------------------------------------
+// Satellite position broadcast loop (every 10s)
+// ---------------------------------------------------------------------------
+
+setInterval(() => {
+    const positions = propagateAll();
+    io.emit('satellite-positions', positions);
+}, 10_000);
+
+// ---------------------------------------------------------------------------
+// Startup sequence
+// ---------------------------------------------------------------------------
+
+async function start(): Promise<void> {
+    await prisma.$connect();
+    console.log('[DB] Connected to PostgreSQL');
+
+    await hydrateFromDb();
+
+    startTleRefreshLoop();
+
+    httpServer.listen(PORT, () => {
+        console.log(`[Gateway] Running on port ${PORT}`);
+    });
+}
+
+// ---------------------------------------------------------------------------
+// Graceful shutdown
+// ---------------------------------------------------------------------------
+
+async function shutdown(signal: string): Promise<void> {
+    console.log(`[Gateway] ${signal} received — shutting down`);
+    io.close();
+    httpServer.close();
+    await disconnectDb();
+    process.exit(0);
+}
+
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('SIGINT', () => shutdown('SIGINT'));
+
+// ---------------------------------------------------------------------------
+// Boot
+// ---------------------------------------------------------------------------
+
+start().catch((err) => {
+    console.error('[Gateway] Fatal startup error:', err);
+    process.exit(1);
 });

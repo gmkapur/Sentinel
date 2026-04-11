@@ -1,0 +1,118 @@
+import { useRef, useEffect, useState, useCallback, useMemo } from 'react';
+import Globe from 'react-globe.gl';
+import { useMissionStore } from '../../stores/missionStore';
+import { getAltitudeColor } from '../../utils/colors';
+import { EARTH_RADIUS_KM } from '../../utils/constants';
+import { SatelliteTooltip } from './SatelliteTooltip';
+import type { SatPosition } from '@sentinel/shared/src/types';
+
+export function GlobeView() {
+    const satellites = useMissionStore((s) => s.satellites);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const globeRef = useRef<any>(null);
+    const containerRef = useRef<HTMLDivElement>(null);
+    const idleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const [dimensions, setDimensions] = useState({ width: 0, height: 0 });
+    const [hoveredSat, setHoveredSat] = useState<SatPosition | null>(null);
+
+    useEffect(() => {
+        const el = containerRef.current;
+        if (!el) return;
+
+        const observer = new ResizeObserver((entries) => {
+            const { width, height } = entries[0].contentRect;
+            setDimensions({ width, height });
+        });
+        observer.observe(el);
+        return () => observer.disconnect();
+    }, []);
+
+    useEffect(() => {
+        if (!globeRef.current) return;
+        const controls = globeRef.current.controls();
+        controls.autoRotate = true;
+        controls.autoRotateSpeed = 0.5;
+        controls.enableDamping = true;
+        controls.dampingFactor = 0.1;
+        globeRef.current.pointOfView({ lat: 20, lng: 0, altitude: 2.5 });
+    }, []);
+
+    const handleInteraction = useCallback(() => {
+        if (!globeRef.current) return;
+        const controls = globeRef.current.controls();
+        controls.autoRotate = false;
+
+        if (idleTimerRef.current) {
+            clearTimeout(idleTimerRef.current);
+        }
+        idleTimerRef.current = setTimeout(() => {
+            if (globeRef.current) {
+                globeRef.current.controls().autoRotate = true;
+            }
+        }, 5000);
+    }, []);
+
+    const pointAlt = useCallback(
+        (d: object) => (d as SatPosition).alt / EARTH_RADIUS_KM,
+        []
+    );
+
+    const pointColor = useCallback(
+        (d: object) => getAltitudeColor((d as SatPosition).alt),
+        []
+    );
+
+    const handlePointHover = useCallback(
+        (point: object | null) => {
+            setHoveredSat(point as SatPosition | null);
+        },
+        []
+    );
+
+    const globeImageUrl = useMemo(
+        () => 'https://unpkg.com/three-globe/example/img/earth-night.jpg',
+        []
+    );
+
+    const bgImageUrl = useMemo(
+        () => 'https://unpkg.com/three-globe/example/img/night-sky.png',
+        []
+    );
+
+    return (
+        <div
+            ref={ containerRef }
+            className="relative overflow-hidden bg-void"
+            onMouseDown={ handleInteraction }
+            onWheel={ handleInteraction }
+        >
+            { dimensions.width > 0 && (
+                <Globe
+                    ref={ globeRef }
+                    width={ dimensions.width }
+                    height={ dimensions.height }
+                    globeImageUrl={ globeImageUrl }
+                    backgroundImageUrl={ bgImageUrl }
+                    atmosphereColor="#1a3a5c"
+                    atmosphereAltitude={ 0.15 }
+                    pointsData={ satellites }
+                    pointLat="lat"
+                    pointLng="lng"
+                    pointAltitude={ pointAlt }
+                    pointColor={ pointColor }
+                    pointRadius={ 0.25 }
+                    pointResolution={ 6 }
+                    pointsMerge={ true }
+                    onPointHover={ handlePointHover }
+                    animateIn={ false }
+                />
+            ) }
+
+            { hoveredSat && (
+                <div className="absolute top-4 right-4 z-10">
+                    <SatelliteTooltip satellite={ hoveredSat } />
+                </div>
+            ) }
+        </div>
+    );
+}

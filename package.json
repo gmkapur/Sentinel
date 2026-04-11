@@ -9,11 +9,13 @@
     "lint:fix": "eslint --fix packages/*/src/**/*.ts packages/*/src/**/*.tsx",
     "format:check": "prettier --check packages/*/src/**/*.ts packages/*/src/**/*.tsx",
     "format": "prettier --write packages/*/src/**/*.ts packages/*/src/**/*.tsx",
+    "dev": "concurrently -n agent,gateway,frontend -c blue,green,magenta \"npm run dev -w packages/agent\" \"npm run dev -w packages/gateway\" \"npm run dev -w packages/frontend\"",
     "postinstall": "husky"
   },
   "devDependencies": {
     "@eslint/js": "^9.25.0",
     "@typescript-eslint/parser": "^8.58.1",
+    "concurrently": "^9.2.1",
     "eslint": "^9.25.0",
     "eslint-config-prettier": "^10.1.2",
     "eslint-plugin-react": "^7.37.5",

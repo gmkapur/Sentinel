@@ -25,12 +25,14 @@ npm run format:check
 ## How It Runs
 - **Two-service architecture**: Gateway (:3001) serves frontend + WebSocket; Agent (:3002) runs pollers + risk engine + LLM briefs
 - **Entrypoints**: `packages/gateway/src/index.ts` (Express + Socket.io), `packages/agent/src/index.ts` (Express + cron pollers), `packages/frontend/src/App.tsx` (React)
-- **Core flow**: Agent cron pollers fetch SWPC/DONKI/NeoWs/EONET data → in-memory cache (node-cache) → risk scoring engine fuses data into 0–100 score → Claude LLM generates mission brief → Agent POSTs to gateway `/internal/agent-push` → Socket.io broadcasts to React frontend → 3D globe + alert panels
+- **Core flow**: Agent cron pollers fetch SWPC/DONKI/NeoWs/EONET data → PostgreSQL (via Prisma) → risk scoring engine fuses data into 0–100 score → Claude LLM generates mission brief → Agent POSTs to gateway `/internal/agent-push` → Socket.io broadcasts to React frontend → 3D globe + alert panels
 - **Key modules**:
   - `packages/agent/src/pollers/` — cron-scheduled data fetchers (swpc.ts, donki.ts, neows.ts, eonet.ts)
   - `packages/agent/src/riskEngine.ts` — multi-source data fusion and 0–100 scoring
   - `packages/agent/src/llmBrief.ts` — Claude API integration for structured mission briefs
-  - `packages/agent/src/dataCache.ts` — node-cache wrapper with source-specific TTLs
+  - `packages/agent/src/dataCache.ts` — Prisma-backed persistence layer for all space weather data
+  - `packages/agent/src/prisma.ts` — singleton Prisma client
+  - `packages/agent/prisma/schema.prisma` — PostgreSQL schema (SpaceWeatherReading, DonkiFlare, DonkiCME, NeoObject, EonetEvent, RiskAssessment, MissionBrief, PollStatus)
   - `packages/agent/src/push.ts` — HTTP push to gateway
   - `packages/gateway/src/routes.ts` — REST endpoints (`/api/status`, `/api/satellites`, `/api/alerts`, `/api/space-weather`)
   - `packages/gateway/src/satellites.ts` — TLE cache + SGP4 propagation via satellite.js
@@ -47,11 +49,26 @@ npm run format:check
 - Space-Track rate limits are strict: 30 req/min, 300 req/hour — violations trigger HTTP 500 and email warnings
 - Inter-service communication uses `INTERNAL_SECRET` header — both services must share the same secret from `.env`
 - Without `ANTHROPIC_API_KEY`, the agent uses deterministic fallback briefs instead of LLM-generated ones
+- Agent requires PostgreSQL — set `DATABASE_URL` in `.env` and run `npx prisma migrate dev` before first start
+- Prisma schema lives in `packages/agent/prisma/schema.prisma` — after any schema change, run `npx prisma generate`
+
+## Commands (Agent-specific)
+```bash
+# Database setup (requires PostgreSQL running)
+cd packages/agent && npx prisma migrate dev --name init
+cd packages/agent && npx prisma generate
+cd packages/agent && npx prisma studio   # Visual DB browser
+
+# Reset database (destructive)
+cd packages/agent && npx prisma migrate reset
+```
 
 ## Code Conventions
 - Runtime: Node.js (not Bun/Deno)
 - Language: TypeScript (strict mode, ES2022 target, CommonJS module)
 - Monorepo: npm workspaces with `packages/gateway`, `packages/agent`, `packages/frontend`, `packages/shared`
+- Database: PostgreSQL + Prisma ORM (agent service only)
+- LLM: `@anthropic-ai/sdk` for Claude integration (not raw HTTP)
 - All external API calls go through server-side pollers in the agent, never from the client
 - Risk scores use NOAA's established thresholds (M5+ flare, Kp ≥ 5, ≥10 pfu)
 - Inter-service auth: `x-internal-secret` header on `/internal/agent-push`

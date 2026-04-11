@@ -1,0 +1,129 @@
+@import 'tailwindcss';
+
+/* === THEME TOKENS (Tailwind v4 @theme) === */
+@theme {
+    --color-void: #05060a;
+    --color-base: #0a0a0f;
+    --color-elevated: #0d1117;
+    --color-hover: #151b23;
+    --color-active: #1c2333;
+
+    --color-border-subtle: #1b1f27;
+    --color-border-dim: #252a33;
+    --color-border-accent: #30363d;
+
+    --color-text-primary: #e6edf3;
+    --color-text-secondary: #8b949e;
+    --color-text-muted: #484f58;
+    --color-text-bright: #f0f6fc;
+
+    --color-accent: #22d3ee;
+    --color-accent-dim: #0e7490;
+
+    --color-risk-low: #22c55e;
+    --color-risk-moderate: #eab308;
+    --color-risk-high: #f97316;
+    --color-risk-critical: #ef4444;
+
+    --color-sat-leo: #22d3ee;
+    --color-sat-meo: #eab308;
+    --color-sat-geo: #f97316;
+    --color-sat-heo: #a855f7;
+
+    --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
+    --font-mono: 'JetBrains Mono', ui-monospace, 'Cascadia Code', monospace;
+}
+
+/* === BASE RESET === */
+*,
+*::before,
+*::after {
+    box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+    height: 100%;
+    margin: 0;
+    padding: 0;
+    overflow: hidden;
+    background-color: var(--color-void);
+    color: var(--color-text-primary);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+}
+
+/* === SCROLLBAR STYLING === */
+::-webkit-scrollbar {
+    width: 6px;
+}
+
+::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+    background: var(--color-border-accent);
+    border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: var(--color-text-muted);
+}
+
+* {
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-border-accent) transparent;
+}
+
+/* === ANIMATIONS === */
+@keyframes critical-pulse {
+    0%,
+    100% {
+        box-shadow: 0 0 8px rgba(239, 68, 68, 0.4);
+    }
+    50% {
+        box-shadow:
+            0 0 20px rgba(239, 68, 68, 0.8),
+            0 0 40px rgba(239, 68, 68, 0.3);
+    }
+}
+
+@keyframes glow-breathe {
+    0%,
+    100% {
+        opacity: 0.6;
+    }
+    50% {
+        opacity: 1;
+    }
+}
+
+@keyframes loading-slide {
+    0% {
+        transform: translateX(-100%);
+    }
+    100% {
+        transform: translateX(400%);
+    }
+}
+
+/* === GLASSMORPHISM BASE === */
+.glass-panel {
+    background: rgba(13, 17, 23, 0.7);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid var(--color-border-subtle);
+    border-radius: 8px;
+}
+
+/* === UTILITY CLASSES === */
+.critical-pulse {
+    animation: critical-pulse 2s ease-in-out infinite;
+}
+
+.glow-breathe {
+    animation: glow-breathe 3s ease-in-out infinite;
+}

@@ -99,14 +99,12 @@ export function propagateAll(): SatPosition[] {
         try {
             const posVel = satellite.propagate(record.satrec, now);
 
-            if (
-                typeof posVel.position === 'boolean' ||
-                posVel.position === false
-            ) {
+            const position = posVel.position;
+            if (!position || typeof position === 'boolean') {
                 continue;
             }
 
-            const geo = satellite.eciToGeodetic(posVel.position, gmst);
+            const geo = satellite.eciToGeodetic(position, gmst);
             positions.push({
                 id: record.noradId,
                 name: record.name,
@@ -141,14 +139,12 @@ export function getSatelliteById(
     try {
         const posVel = satellite.propagate(record.satrec, now);
 
-        if (
-            typeof posVel.position === 'boolean' ||
-            posVel.position === false
-        ) {
+        const position = posVel.position;
+        if (!position || typeof position === 'boolean') {
             return null;
         }
 
-        const geo = satellite.eciToGeodetic(posVel.position, gmst);
+        const geo = satellite.eciToGeodetic(position, gmst);
         return {
             id: record.noradId,
             name: record.name,
