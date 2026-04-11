@@ -29,8 +29,11 @@ import {
     saveMissionBrief,
 } from './dataCache';
 import { checkAndAlert } from './phoneAlert';
+import { injectDemoData } from './demoData';
 
 import type { AgentPushPayload } from '@sentinel/shared';
+
+const DEMO_MODE = process.env.DEMO_MODE === 'true';
 
 const app = express();
 const PORT = process.env.AGENT_PORT || 3002;
@@ -45,6 +48,11 @@ app.use(router);
 async function runEvaluationCycle(): Promise<void> {
     try {
         console.log('[Cycle] Starting risk evaluation cycle...');
+
+        // 0. Inject demo data if enabled (overrides real SWPC readings)
+        if (DEMO_MODE) {
+            await injectDemoData();
+        }
 
         // 1. Evaluate risk
         const risk = await evaluate();
@@ -133,6 +141,9 @@ async function initialFetch(): Promise<void> {
     }
 
     console.log('[Init] Initial fetch complete, running first evaluation...');
+    if (DEMO_MODE) {
+        console.log('[DEMO] Demo mode enabled — overlaying fake high-risk data');
+    }
     await runEvaluationCycle();
 }
 
