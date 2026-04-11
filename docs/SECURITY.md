@@ -1,92 +1,101 @@
 # Security
 
 > **For AI Agents**: This document defines security boundaries. When working on any code
-> that touches authentication, authorization, data handling, or external services,
-> read this document first and follow its constraints strictly.
+> that touches API keys, data handling, or external services, read this document first
+> and follow its constraints strictly.
 
 ## Authentication
 
 ### Auth Flow
-- **Method**: [FILL: e.g., JWT with refresh tokens, session cookies, OAuth2 + PKCE]
-- **Provider**: [FILL: e.g., custom, Auth0, Clerk, Supabase Auth, Firebase Auth]
-- **Token storage (client)**: [FILL: e.g., "httpOnly secure cookie — NEVER localStorage"]
-- **Token lifetime**: [FILL: e.g., "Access: 15 min, Refresh: 7 days, Session: 24 hours"]
+- **Method**: No user authentication for MVP — the application is a read-only dashboard
+- **API key management**: NASA API keys and optional third-party keys stored in `.env`, loaded via `dotenv`
+- **External API auth**:
+  - NASA DONKI/NeoWs: API key as `api_key` query parameter
+  - NOAA SWPC: No authentication required
+  - CelesTrak: No authentication required
+  - N2YO: API key as `apiKey` query parameter
+  - Space-Track: Cookie-based session via POST login (if used)
+  - NASA EONET: No authentication required
 
 ### Auth Boundaries
-- [FILL: e.g., "All `/api/*` routes require authentication except `/api/auth/*`"]
-- [FILL: e.g., "Webhook endpoints use HMAC signature verification, not JWT"]
-- [FILL: e.g., "Internal service-to-service calls use API keys, not user tokens"]
+- All API keys are server-side only — never exposed to the frontend
+- Frontend communicates only with our Express backend, never directly with external APIs
+- No user sessions, no login, no authorization model for MVP
 
 ## Authorization
 
 ### Permission Model
-- **Type**: [FILL: e.g., RBAC, ABAC, ACL, simple role check]
-- **Roles**: [LIST: e.g., `admin`, `member`, `viewer`, `guest`]
-- **Enforcement point**: [FILL: e.g., "Middleware checks role before controller runs"]
-
-### Resource-Level Access
-- [FILL: e.g., "Users can only access resources within their organization"]
-- [FILL: e.g., "Admin endpoints require `admin` role AND `org_id` match"]
-- [FILL: e.g., "Public resources are explicitly marked with `is_public: true`"]
+- **Type**: None — MVP is a public read-only dashboard
+- No roles, no access control, no multi-tenancy
+- Post-MVP: consider API key-based access if exposing as a service
 
 ## Data Protection
 
 ### Sensitive Data
-<!-- What data is sensitive and how must it be handled? -->
 | Data Type | Storage | Encryption | Access Control |
 |-----------|---------|------------|----------------|
-| Passwords | [FILL: e.g., bcrypt hash, never plaintext] | At rest | Auth service only |
-| API keys | [FILL: e.g., hashed, prefix stored for lookup] | At rest | Owner only |
-| PII | [FILL: e.g., encrypted columns] | At rest + transit | Role-based |
-| [FILL] | [FILL] | [FILL] | [FILL] |
+| NASA API key | `.env` file, env vars | None (not a secret per se — free key) | Server process only |
+| Space-Track credentials | `.env` file, env vars | None at rest | Server process only |
+| N2YO API key | `.env` file, env vars | None | Server process only |
 
 ### Data Handling Rules
-- [FILL: e.g., "Never log PII — sanitize before logging"]
-- [FILL: e.g., "Never return password hashes in API responses"]
-- [FILL: e.g., "Use parameterized queries — NEVER string interpolation for SQL"]
-- [FILL: e.g., "Validate and sanitize ALL user input at the API boundary"]
+- Never log API keys — sanitize environment variables before logging
+- Never expose API keys in REST responses or WebSocket messages
+- Never commit `.env` files to git
+- All data from external APIs is public government data — no PII, no sensitive user data
+- In-memory cache means no data persists to disk (except `.env`)
 
 ## Input Validation
-- **Validation library**: [FILL: e.g., Zod, Joi, class-validator]
-- **Where validation happens**: [FILL: e.g., "Request validation middleware before controller"]
-- **Rules**:
-  - [FILL: e.g., "All string inputs are trimmed and length-limited"]
-  - [FILL: e.g., "File uploads limited to 10MB, allowed types: jpg, png, pdf"]
-  - [FILL: e.g., "IDs must match UUID v4 format"]
+- **Validation**: Minimal for MVP — validate NORAD IDs are numeric in `/api/satellite/:id`
+- **External data**: Treat all external API responses as untrusted — validate expected fields exist before accessing
+- **Query parameters**: Validate date formats (`yyyy-MM-dd`) before forwarding to NASA APIs
 
 ## OWASP Top 10 Mitigations
-<!-- How does this project address common vulnerabilities? -->
 
 | Vulnerability | Mitigation |
 |--------------|------------|
-| SQL Injection | [FILL: e.g., "ORM with parameterized queries. No raw SQL."] |
-| XSS | [FILL: e.g., "React auto-escapes. CSP headers. No dangerouslySetInnerHTML."] |
-| CSRF | [FILL: e.g., "SameSite cookies + CSRF token on state-changing requests"] |
-| Broken Auth | [FILL: e.g., "Token rotation, short-lived access tokens, secure storage"] |
-| Injection | [FILL: e.g., "Input validation on all boundaries, no eval(), no shell exec with user input"] |
+| SQL Injection | No database — not applicable |
+| XSS | React auto-escapes by default. No `dangerouslySetInnerHTML`. |
+| CSRF | No state-changing operations from browser — read-only dashboard |
+| Broken Auth | No authentication — public dashboard |
+| Injection | No shell execution with user input. API route params validated. |
+| SSRF | Server-side pollers only fetch from hardcoded API URLs, not user-supplied URLs |
+| Security Misconfiguration | CORS configured to allow only the Vite dev server origin |
 
 ## Secrets & Environment Variables
-- **Secret storage**: [FILL: e.g., "AWS Secrets Manager for prod, .env.local for dev"]
-- **Never committed**: `.env`, `*.pem`, `*.key`, `credentials.json`, `secrets.yaml`
-- **Rotation**: [FILL: e.g., "API keys rotated quarterly, DB passwords on breach"]
+- **Secret storage**: `.env` file for local dev, platform env vars for production
+- **Never committed**: `.env`, `*.pem`, `*.key`
+- **gitignore**: Ensure `.env` is in `.gitignore`
+- **Key rotation**: NASA keys don't expire. Rotate Space-Track password periodically.
+
+## API Key Security
+- NASA API keys are free and non-sensitive, but still should not be committed to git or exposed to clients
+- The `DEMO_KEY` is a public fallback but has severe rate limits (30/hour) — always prefer a registered key
+- Space-Track credentials grant access to orbital data catalogs — treat as moderately sensitive
+- N2YO keys are free but tied to your account's rate limit quota
 
 ## Security Headers
 ```
-[FILL: list your security headers]
-
-Example:
-Content-Security-Policy: default-src 'self'
 X-Content-Type-Options: nosniff
 X-Frame-Options: DENY
-Strict-Transport-Security: max-age=31536000; includeSubDomains
 ```
+Post-MVP: add CSP, HSTS, and other headers via helmet middleware.
 
 ## Dependency Security
-- [FILL: e.g., "Dependabot enabled for automated vulnerability scanning"]
-- [FILL: e.g., "`npm audit` runs in CI — build fails on critical vulnerabilities"]
-- [FILL: e.g., "New dependencies require security review in PR"]
+- Keep dependencies minimal (7 backend, ~6 frontend) to reduce attack surface
+- Run `npm audit` periodically
+- All dependencies are well-known, widely-used packages (Express, Socket.io, axios, etc.)
+- No native modules or binary dependencies (except three.js WebGL)
 
-## Incident Response
-- **Security contact**: [FILL: email or Slack channel]
-- **Reporting**: [FILL: e.g., "security@sentinel.io or responsible disclosure via HackerOne"]
-- **Runbook location**: [FILL: e.g., "Internal wiki at [URL]"]
+## Rate Limit Awareness
+External APIs have rate limits that could be abused if the server is exposed publicly:
+
+| API | Limit | Risk |
+|-----|-------|------|
+| NASA (registered key) | 1,000 req/hour | Low — pollers are cron-scheduled |
+| NASA (DEMO_KEY) | 30 req/hour, 50/day | Medium — easy to exhaust |
+| Space-Track | 30 req/min, 300 req/hour | High — violations trigger warnings |
+| CelesTrak | No formal limit, 2-hour courtesy | Low — data only updates 3x/day |
+| N2YO | 1,000 req/hour | Low — pollers are scheduled |
+
+If exposing the Express API publicly, consider adding rate limiting middleware (`express-rate-limit`) to prevent abuse amplifying requests to upstream APIs.

@@ -5,67 +5,63 @@
 > agents infer these from existing code. Focus on the surprising or non-standard.
 
 ## File & Directory Naming
-- [FILL: e.g., "All filenames use kebab-case: `user-service.ts`, not `userService.ts`"]
-- [FILL: e.g., "Test files co-located with source: `foo.ts` → `foo.test.ts`"]
-- [FILL: e.g., "Each module gets its own directory with an `index.ts` barrel export"]
+- All filenames use kebab-case: `risk-engine.js`, not `riskEngine.js`
+- React components use PascalCase: `Globe.jsx`, `AlertPanel.jsx`
+- Test files co-located in `tests/` directory, mirroring source structure: `tests/unit/risk-engine.test.js`
+- Pollers each get their own file named after the data source: `swpc.js`, `donki.js`, `celestrak.js`
 
 ## Code Organization Patterns
 
 ### Module Structure
-<!-- How should a new feature/module be organized? -->
 ```
-[FILL: example of a well-structured module]
-
-Example:
-src/features/auth/
-├── auth.controller.ts     # HTTP handlers (thin, delegates to service)
-├── auth.service.ts        # Business logic
-├── auth.repository.ts     # Database queries
-├── auth.types.ts          # Types/interfaces for this module
-├── auth.validation.ts     # Input validation schemas
-├── auth.test.ts           # Tests
-└── index.ts               # Public exports only
+server/
+├── pollers/
+│   ├── swpc.js           # Fetch + parse + cache for one data source
+│   ├── donki.js
+│   ├── celestrak.js
+│   └── neows.js
+├── routes/
+│   ├── status.js         # One file per REST endpoint group
+│   ├── space-weather.js
+│   ├── alerts.js
+│   └── satellite.js
+├── risk-engine.js        # Standalone scoring module
+└── index.js              # Server setup, cron registration, Socket.io init
 ```
 
 ### Import Order
-<!-- If you enforce a specific import order. -->
-[FILL: e.g., "
-1. Node/runtime built-ins
-2. External packages
-3. Internal aliases (@/...)
-4. Relative imports
-Blank line between each group. Enforced by ESLint import-order rule.
-"]
+1. Node built-ins (`import { readFileSync } from 'fs'`)
+2. External packages (`import express from 'express'`)
+3. Internal modules (`import { computeRisk } from './risk-engine.js'`)
+
+Blank line between each group.
 
 ## Naming Conventions
-<!-- Only list deviations from standard. -->
-- [FILL: e.g., "Database columns use snake_case, TypeScript properties use camelCase"]
-- [FILL: e.g., "API routes use kebab-case: `/user-profiles`, not `/userProfiles`"]
-- [FILL: e.g., "Environment variables prefixed with `SENTINEL_` for app-specific vars"]
-- [FILL: e.g., "Boolean variables/props prefixed with `is`, `has`, `should`"]
+- API route paths use kebab-case: `/api/space-weather`, not `/api/spaceWeather`
+- Environment variables use UPPER_SNAKE_CASE: `NASA_API_KEY`, `SPACE_TRACK_USER`
+- Cache keys use colon-delimited namespaces: `swpc:xray`, `donki:flares`, `celestrak:tle:25544`
+- Risk levels are uppercase string constants: `LOW`, `MODERATE`, `HIGH`, `CRITICAL`
+- Socket.io event names use kebab-case: `risk-alert`, `risk-update`
 
 ## Error Handling
-- [FILL: e.g., "Use custom error classes extending `AppError` (see `src/errors/`)"]
-- [FILL: e.g., "Never throw raw strings — always throw Error instances"]
-- [FILL: e.g., "API errors return `{ error: { code, message, details? } }` format"]
-- [FILL: e.g., "Use Result types for expected failures, throw for unexpected ones"]
+- Pollers catch all errors and log them — never let a failed API call crash the server
+- Serve stale cached data when an API is down (graceful degradation)
+- API routes return `{ error: { code, message } }` format on failure
+- Never throw raw strings — always throw Error instances
 
 ## Async Patterns
-- [FILL: e.g., "Always use async/await, never raw Promises with .then()"]
-- [FILL: e.g., "Database operations must be wrapped in transactions for multi-step mutations"]
+- Always use async/await, never raw Promises with `.then()`
+- Pollers are independent — a failure in one never blocks others
+- Use try/catch in every poller function with logging on catch
 
-## Type Conventions
-- [FILL: e.g., "Prefer interfaces over types for object shapes"]
-- [FILL: e.g., "Use Zod schemas as the single source of truth, infer types with z.infer<>"]
-- [FILL: e.g., "No `any` — use `unknown` and narrow with type guards"]
-
-## Comments & Documentation
-- [FILL: e.g., "No JSDoc unless it's a public API. Code should be self-documenting."]
-- [FILL: e.g., "Use `// TODO(name):` format for todos, linked to an issue number"]
-- [FILL: e.g., "Comment the WHY, never the WHAT"]
+## Data Format Conventions
+- Always use JSON/OMM format from CelesTrak, never legacy TLE text strings
+- Parse OMM with `satellite.js` v7's `json2satrec()`, not `twoline2satrec()`
+- Dates in API responses use ISO 8601 format
+- Coordinates use decimal degrees (latitude, longitude) and kilometers (altitude)
 
 ## Dependency Rules
-<!-- What should agents know about adding or changing dependencies? -->
-- [FILL: e.g., "Prefer stdlib over npm packages for simple operations"]
-- [FILL: e.g., "New dependencies require team approval — add justification to PR description"]
-- [FILL: e.g., "Zero tolerance for packages with known vulnerabilities"]
+- Keep backend dependencies minimal (7 total for MVP)
+- No Redis, no database, no BullMQ — use in-memory alternatives
+- Prefer native Node.js features over npm packages (e.g., native `fetch` for simple cases, though `axios` is used for consistency)
+- All external data fetching goes through server-side pollers — never from the client

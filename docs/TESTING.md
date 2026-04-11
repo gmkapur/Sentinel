@@ -1,99 +1,91 @@
 # Testing Strategy
 
 ## Philosophy
-<!-- What's your testing approach? What level of coverage do you target? -->
-- [FILL: e.g., "Test behavior, not implementation. Favor integration tests over unit tests."]
-- **Coverage target**: [FILL: e.g., 80% line coverage, or "no strict target — critical paths must be covered"]
+- MVP ships without tests — testing is explicitly deferred to keep the 6-hour sprint focused on functionality
+- When tests are added post-MVP: test behavior, not implementation. Focus on the risk engine scoring logic and poller data parsing as highest-value targets.
+- **Coverage target**: No strict target for MVP. Post-MVP: critical paths must be covered (risk engine, pollers, API routes).
 
 ## Test Commands
 
 ```bash
 # Run all tests
-[FILL: exact command]
+npm test
 
 # Run a single test file
-[FILL: exact command with example path]
+npx vitest run server/risk-engine.test.js
 
 # Run tests matching a pattern
-[FILL: e.g., pnpm vitest run --grep "auth"]
+npx vitest run --grep "risk"
 
 # Run tests in watch mode
-[FILL: exact command]
+npx vitest --watch
 
 # Run tests with coverage report
-[FILL: exact command]
-
-# Run only unit tests
-[FILL: exact command, if separated]
-
-# Run only integration tests
-[FILL: exact command, if separated]
-
-# Run only e2e tests
-[FILL: exact command, if separated]
+npx vitest run --coverage
 ```
 
 ## Test Structure
 
 ```
-[FILL: your test directory layout]
-
-Example:
 tests/
-├── unit/                    # Fast, isolated tests
-│   ├── services/
+├── unit/
+│   ├── risk-engine.test.js    # Scoring logic with mock data
+│   ├── pollers/
+│   │   ├── swpc.test.js       # SWPC response parsing
+│   │   ├── donki.test.js      # DONKI response parsing
+│   │   └── celestrak.test.js  # OMM JSON parsing
 │   └── utils/
-├── integration/             # Tests with real dependencies
+│       └── propagation.test.js # satellite.js wrapper functions
+├── integration/
 │   ├── api/
-│   └── db/
-├── e2e/                     # Full end-to-end flows
-├── fixtures/                # Shared test data
-├── helpers/                 # Test utilities
-└── setup.ts                 # Global test setup
+│   │   ├── status.test.js     # GET /api/status
+│   │   └── alerts.test.js     # GET /api/alerts
+│   └── websocket.test.js      # Socket.io event flow
+└── fixtures/
+    ├── swpc-xray.json         # Sample SWPC X-ray response
+    ├── donki-flare.json       # Sample DONKI solar flare response
+    ├── celestrak-omm.json     # Sample CelesTrak OMM JSON
+    └── neows-feed.json        # Sample NeoWs feed response
 ```
 
 ## Test Categories
 
-### Unit Tests
-- **Location**: [FILL: e.g., `tests/unit/` or co-located as `*.test.ts`]
-- **Naming**: [FILL: e.g., `[module].test.ts` or `[module].spec.ts`]
-- **Mocking strategy**: [FILL: e.g., "Use vitest mocks. Mock external services, never mock internal modules."]
-- **When to write**: [FILL: e.g., "For pure business logic and utility functions"]
+### Unit Tests (highest priority post-MVP)
+- **Location**: `tests/unit/`
+- **Naming**: `[module].test.js`
+- **Mocking strategy**: Mock axios responses with fixture JSON files. Never make real API calls in unit tests.
+- **When to write**: Risk engine scoring logic (most critical), poller response parsing, utility functions
 
 ### Integration Tests
-- **Location**: [FILL: e.g., `tests/integration/`]
-- **Database**: [FILL: e.g., "Uses test database, reset between suites via transactions"]
-- **External services**: [FILL: e.g., "Use MSW for HTTP mocking, testcontainers for databases"]
-- **When to write**: [FILL: e.g., "For API endpoints and database queries"]
+- **Location**: `tests/integration/`
+- **External services**: Use fixture data injected into node-cache, not live API calls
+- **When to write**: API route responses, Socket.io event broadcast on risk level changes
 
 ### End-to-End Tests
-- **Location**: [FILL: e.g., `tests/e2e/`]
-- **Framework**: [FILL: e.g., Playwright, Cypress]
-- **When to write**: [FILL: e.g., "For critical user journeys: signup, checkout, etc."]
+- **Location**: Not planned for MVP
+- **Framework**: Playwright (when added)
+- **When to write**: Post-MVP for critical user journeys (page load → globe render → alert display)
 
 ## Test Data & Fixtures
-- **Factories**: [FILL: e.g., "Use `tests/factories/` with faker for generating test data"]
-- **Seeds**: [FILL: e.g., "Run `pnpm db:seed:test` for baseline test data"]
-- **Cleanup**: [FILL: e.g., "Each test suite wraps in a transaction that rolls back"]
+- **Fixtures**: Store sample API responses in `tests/fixtures/` — capture real responses and save as JSON
+- **Risk scenarios**: Create fixtures for each risk level (LOW, MODERATE, HIGH, CRITICAL) with appropriate data combinations
+- **Cleanup**: No database cleanup needed — tests use in-memory cache
 
 ## What Must Pass Before Merge
-<!-- This is critical for agents to know — what's the minimum bar? -->
 - [ ] All unit tests pass
-- [ ] All integration tests pass
 - [ ] Linting passes with zero warnings
-- [ ] Type check passes
-- [ ] [FILL: any other gates — e.g., coverage threshold, e2e smoke tests]
+- [ ] Build completes without errors
+- [ ] Risk engine produces correct scores for fixture-based scenarios
 
 ## Writing a New Test — Checklist
-<!-- Step-by-step guide for adding a test. Agents follow this exactly. -->
-1. [FILL: e.g., "Create test file next to the source: `foo.test.ts` beside `foo.ts`"]
-2. [FILL: e.g., "Import the module under test and relevant fixtures"]
-3. [FILL: e.g., "Use `describe` blocks for the module, `it` blocks for behaviors"]
-4. [FILL: e.g., "Test the happy path first, then error cases, then edge cases"]
-5. [FILL: e.g., "Run the test in isolation before pushing"]
+1. Create test file in the appropriate `tests/` subdirectory
+2. Import the module under test and relevant fixtures from `tests/fixtures/`
+3. Use `describe` blocks for the module, `it` blocks for behaviors
+4. Test the happy path first, then error cases (API down / stale cache), then edge cases
+5. For risk engine tests: verify both the score value and the risk level classification
+6. Run the test in isolation before pushing: `npx vitest run path/to/test.js`
 
 ## Known Test Quirks
-<!-- Non-obvious testing gotchas — extremely valuable for agents. -->
-- [FILL: e.g., "Tests using the database must run sequentially (--no-threads)"]
-- [FILL: e.g., "Timer-dependent tests need `vi.useFakeTimers()` — remember to restore"]
-- [FILL: e.g., "Snapshot tests auto-update with `--update` flag — review diffs carefully"]
+- satellite.js v7 is ESM-only — test runner must support ESM (Vitest handles this natively)
+- Risk engine tests should set fixed timestamps to avoid flaky results from time-dependent logic
+- Socket.io tests require a running server instance — use `beforeAll` to spin up a test server on a random port

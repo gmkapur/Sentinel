@@ -4,94 +4,117 @@
 
 | Environment | URL | Branch | Auto-deploy? | Purpose |
 |-------------|-----|--------|-------------- |---------|
-| Development | [FILL: e.g., `localhost:3000`] | — | — | Local dev |
-| Staging | [FILL: e.g., `staging.sentinel.io`] | [FILL: e.g., `main`] | [FILL] | QA & testing |
-| Production | [FILL: e.g., `sentinel.io`] | [FILL: e.g., tagged releases] | [FILL] | Live users |
+| Development | `localhost:5173` (frontend), `localhost:3001` (backend) | — | — | Local dev |
+| Production | TBD | `main` | No | Live deployment (post-MVP) |
+
+## 6-Hour Sprint Plan
+
+The MVP follows a structured 6-hour build sprint:
+
+### Hour 1–2: Foundation
+- Install `react-globe.gl`, `satellite.js`, scaffold Express + Socket.io
+- Copy the official Globe.gl satellite example
+- Fetch ISS TLE from CelesTrak, render it on the globe
+- Server-side: implement SWPC X-ray flux poller (simplest — just `axios.get` a JSON URL, no auth)
+
+### Hour 2–3: Risk Engine
+- Add SWPC Kp index and proton flux pollers
+- Implement the risk scoring engine with data fusion
+- Wire Socket.io to broadcast risk-level changes
+- Connect frontend to receive WebSocket alerts
+
+### Hour 3–4: Events & History
+- Add DONKI solar flare event polling (use registered NASA API key)
+- Build alert history panel
+- Add more satellites from CelesTrak `GROUP=ACTIVE` or `GROUP=STATIONS`
+
+### Hour 4–5: Visualization
+- Add space weather alert overlay on the globe (HTML marker layer or React side panel)
+- Style satellite dots by orbit type
+- Add click-to-inspect satellite tooltips
+
+### Hour 5–6: Polish
+- Error handling, graceful degradation when APIs are down (serve stale cache)
+- Dark globe texture, responsive layout
+- UI polish
+- Deploy
+
+### What to Skip for MVP
+- BullMQ/Redis (use node-cron)
+- Space-Track registration (use CelesTrak)
+- ESA DISCOS (restricted access)
+- Database persistence (in-memory is fine)
+- Real conjunction assessment (use SOCRATES reports)
+- Docker
+- Tests
 
 ## CI Pipeline
 
-### Pipeline Steps
-<!-- What happens on every push / PR? -->
+### Pipeline Steps (Post-MVP)
 ```
-[FILL: describe your CI pipeline]
-
-Example:
-1. Install dependencies (cached)
-2. Lint check
-3. Type check
-4. Unit tests
-5. Integration tests (with test database)
-6. Build
-7. (on main) Deploy to staging
-8. (on tag) Deploy to production
+1. Install dependencies (npm ci, cached)
+2. Lint check (npm run lint)
+3. Unit tests (npm test)
+4. Build (npm run build)
+5. (on main) Deploy
 ```
 
 ### CI Configuration
-- **Platform**: [FILL: e.g., GitHub Actions]
-- **Config location**: [FILL: e.g., `.github/workflows/ci.yml`]
-- **Required checks for merge**: [LIST: which checks must pass]
-
-### CI Gotchas
-- [FILL: e.g., "CI uses Node 20 — don't use Node 22 features"]
-- [FILL: e.g., "Integration tests need `services: postgres` in the workflow"]
-- [FILL: e.g., "Cache key includes lockfile hash — update the cache if dependencies change"]
+- **Platform**: GitHub Actions (planned)
+- **Config location**: `.github/workflows/ci.yml`
+- **Required checks for merge**: Lint, tests, build
 
 ## Deployment Process
 
-### Staging
+### Development
 ```bash
-# [FILL: exact steps to deploy to staging]
-# e.g., "Merging to main auto-deploys to staging via GitHub Actions"
+# Start the full dev stack
+npm run dev
+# Backend runs on port 3001, frontend on port 5173 (Vite default)
 ```
 
-### Production
+### Production Build
 ```bash
-# [FILL: exact steps to deploy to production]
-# e.g.:
-git tag v1.2.3
-git push origin v1.2.3
-# GitHub Actions builds, tests, and deploys the tagged release
+# Build the frontend
+npm run build
+
+# Start in production mode
+NODE_ENV=production node server/index.js
+# Serves built frontend static files + API on a single port
 ```
 
 ### Rollback
-```bash
-# [FILL: how to rollback a bad deploy]
-# e.g., "Redeploy previous Docker image tag via `./scripts/rollback.sh v1.2.2`"
-```
+Not applicable for MVP (local development only). Post-MVP: redeploy previous git tag.
 
 ## Infrastructure
 
 ### Hosting
-- **Provider**: [FILL: e.g., AWS, GCP, Vercel, Railway, Fly.io]
-- **Compute**: [FILL: e.g., ECS Fargate, Lambda, EC2, Kubernetes]
-- **Region**: [FILL: e.g., us-east-1]
+- **Provider**: TBD for production. Options: Railway, Fly.io, Render (all support Node.js + WebSocket)
+- **Compute**: Single Node.js process
+- **Region**: Closest to user (latency not critical — data is cached)
 
-### Database
-- **Host**: [FILL: e.g., RDS PostgreSQL, PlanetScale, Supabase]
-- **Backups**: [FILL: e.g., "Daily automated snapshots, 30-day retention"]
-- **Migration on deploy**: [FILL: e.g., "Migrations run automatically as part of deploy"]
+### Requirements for Hosting Provider
+- Must support WebSocket connections (Socket.io)
+- Must support persistent processes (not serverless — cron pollers need to run continuously)
+- Must allow outbound HTTPS requests to external APIs
 
 ### DNS & CDN
-- **DNS provider**: [FILL: e.g., Cloudflare, Route53]
-- **CDN**: [FILL: e.g., Cloudflare, CloudFront]
-- **SSL**: [FILL: e.g., auto-provisioned via Let's Encrypt]
+- Not configured for MVP
+- Post-MVP: Cloudflare for DNS + caching of static assets
 
 ## Monitoring & Alerting
 
 ### Health Checks
-- **Endpoint**: [FILL: e.g., `GET /health`]
-- **What it checks**: [FILL: e.g., "DB connectivity, Redis connectivity, disk space"]
-
-### Alerts
-- [FILL: e.g., "PagerDuty fires if error rate > 5% for 5 minutes"]
-- [FILL: e.g., "Slack alert if response time p95 > 500ms"]
+- **Endpoint**: `GET /api/status`
+- **What it checks**: Returns current risk score, level, and timestamps of last successful poll for each data source
 
 ### Logs
-- **Location**: [FILL: e.g., CloudWatch, Datadog, stdout → collected by Fluentd]
-- **Format**: [FILL: e.g., structured JSON logs]
-- **How to access**: [FILL: e.g., `aws logs tail /ecs/sentinel --follow`]
+- **Location**: stdout (console.log)
+- **Format**: Plaintext for MVP, structured JSON post-MVP
+- **What to log**: Poller successes/failures, risk level changes, WebSocket connection counts
 
 ## Secrets Management
-- **Tool**: [FILL: e.g., AWS Secrets Manager, Vault, GitHub Secrets, .env files]
-- **Rotation policy**: [FILL: e.g., "API keys rotated quarterly"]
-- **Who has access**: [FILL: e.g., "Only CI and production infra — never stored locally"]
+- **Tool**: `.env` file (local development), platform env vars (production)
+- **Never committed**: `.env` files, API keys
+- **Required secrets**: `NASA_API_KEY` (free, instant registration)
+- **Optional secrets**: `N2YO_API_KEY`, `SPACE_TRACK_USER`, `SPACE_TRACK_PASS`
