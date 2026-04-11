@@ -1,5 +1,6 @@
 export type RiskLevel = 'LOW' | 'MODERATE' | 'HIGH' | 'CRITICAL';
 export type OrbitRegime = 'LEO' | 'MEO' | 'GEO' | 'HEO';
+export type OrbitalRegistryClass = 'LEO' | 'MEO' | 'GEO' | 'STATION' | 'DEBRIS' | 'DEEPSPACE';
 
 export interface RiskBreakdown {
     flare: number;
@@ -52,6 +53,9 @@ export interface SatPosition {
     isSunlit?: boolean;
     isInSAA?: boolean;
     threats?: string[];
+
+    // Frontend catalog classification (demo/display only)
+    registryClass?: OrbitalRegistryClass;
 
     // CME impact data (populated by flare path prediction pipeline)
     cmeImpactProbability?: number;

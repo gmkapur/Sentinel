@@ -1,12 +1,24 @@
 import { useMemo } from 'react';
 import { useEarthDirectedPredictions } from '../../stores/missionStore';
+import type { CMEEarthDirectedness } from '@sentinel/shared/src/types';
+
+interface TimelineItem {
+    id: string;
+    cmeId: string;
+    speed: number;
+    directedness: CMEEarthDirectedness;
+    startPct: number;
+    endPct: number;
+    estPct: number;
+    widthPct: number;
+}
 
 const TIMELINE_HOURS = 72;
 
 export function CMETimeline() {
     const predictions = useEarthDirectedPredictions();
 
-    const items = useMemo(() => {
+    const items = useMemo((): TimelineItem[] => {
         const now = Date.now();
         const end = now + TIMELINE_HOURS * 3_600_000;
 

@@ -1,13 +1,24 @@
 import { useEffect, useState } from 'react';
 import { api } from '../services/api';
+import { USE_TEMP_DATA_ONLY } from '../config/dataSource';
+import { buildTempStatusPayload } from '../mocks/tempFrontendSeed';
+import { buildCatalogSatellitePositions } from '../data/satelliteRegistry';
 import { useMissionStore } from '../stores/missionStore';
 
 export function useStatus(): { loading: boolean; error: string | null } {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const initializeFromStatus = useMissionStore((s) => s.initializeFromStatus);
+    const setSatellites = useMissionStore((s) => s.setSatellites);
 
     useEffect(() => {
+        if (USE_TEMP_DATA_ONLY) {
+            initializeFromStatus(buildTempStatusPayload());
+            setSatellites(buildCatalogSatellitePositions());
+            setLoading(false);
+            return;
+        }
+
         let cancelled = false;
 
         async function fetchInitial() {
@@ -33,7 +44,7 @@ export function useStatus(): { loading: boolean; error: string | null } {
         return () => {
             cancelled = true;
         };
-    }, [initializeFromStatus]);
+    }, [initializeFromStatus, setSatellites]);
 
     return { loading, error };
 }

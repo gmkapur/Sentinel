@@ -2,7 +2,7 @@
 
 /* === THEME TOKENS (Tailwind v4 @theme) === */
 @theme {
-    --color-void: #05060a;
+    --color-void: #030508;
     --color-base: #0a0a0f;
     --color-elevated: #0d1117;
     --color-hover: #151b23;
@@ -31,7 +31,8 @@
     --color-sat-heo: #a855f7;
 
     --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
-    --font-mono: 'JetBrains Mono', ui-monospace, 'Cascadia Code', monospace;
+    --font-mono:
+        'JetBrains Mono', 'Space Mono', ui-monospace, 'Cascadia Code', monospace;
 }
 
 /* === BASE RESET === */
@@ -127,3 +128,551 @@ body,
 .glow-breathe {
     animation: glow-breathe 3s ease-in-out infinite;
 }
+
+/* === ORBIT SENTINEL TERMINAL === */
+@keyframes sentinel-idle-pulse {
+    0%,
+    100% {
+        box-shadow: 0 0 0 0 rgba(0, 255, 136, 0.35);
+        opacity: 0.85;
+    }
+    50% {
+        box-shadow: 0 0 0 18px rgba(0, 255, 136, 0);
+        opacity: 1;
+    }
+}
+
+@keyframes sentinel-sonar-ring {
+    0% {
+        transform: scale(0.55);
+        opacity: 0.55;
+    }
+    70% {
+        opacity: 0.12;
+    }
+    100% {
+        transform: scale(1.65);
+        opacity: 0;
+    }
+}
+
+@keyframes solar-wave-sweep {
+    0% {
+        transform: translateX(40%);
+        opacity: 0;
+    }
+    10% {
+        opacity: 0.85;
+    }
+    100% {
+        transform: translateX(-120%);
+        opacity: 0;
+    }
+}
+
+@keyframes debris-dash {
+    to {
+        stroke-dashoffset: -120;
+    }
+}
+
+@keyframes debris-pulse-line {
+    0%,
+    100% {
+        opacity: 0.35;
+    }
+    50% {
+        opacity: 1;
+    }
+}
+
+@keyframes geomag-flicker {
+    0%,
+    100% {
+        opacity: 0.25;
+    }
+    40% {
+        opacity: 0.85;
+    }
+    55% {
+        opacity: 0.35;
+    }
+    70% {
+        opacity: 0.95;
+    }
+}
+
+@keyframes flare-flash {
+    0% {
+        opacity: 0;
+    }
+    8% {
+        opacity: 0.95;
+    }
+    22% {
+        opacity: 0;
+    }
+    100% {
+        opacity: 0;
+    }
+}
+
+@keyframes flare-shock {
+    0% {
+        transform: scale(0.2);
+        opacity: 0.9;
+    }
+    100% {
+        transform: scale(1.35);
+        opacity: 0;
+    }
+}
+
+.sentinel-idle-core {
+    animation: sentinel-idle-pulse 3.2s ease-in-out infinite;
+}
+
+.sentinel-sonar-ring {
+    animation: sentinel-sonar-ring 2.4s ease-out infinite;
+}
+
+.sentinel-solar-wave {
+    animation: solar-wave-sweep 3s linear forwards;
+}
+
+.sentinel-geomag-ring {
+    animation: geomag-flicker 2.8s ease-in-out infinite;
+}
+
+.sentinel-flare-flash {
+    animation: flare-flash 1.5s ease-out forwards;
+}
+
+.sentinel-flare-shock {
+    animation: flare-shock 1.1s ease-out 0.12s forwards;
+}
+
+.debris-prox-pulse {
+    animation: debris-pulse-line 1.4s ease-in-out infinite;
+}
+
+@keyframes globe-border-flash {
+    0%,
+    100% {
+        border-color: rgba(232, 64, 64, 0.35);
+        box-shadow: inset 0 0 0 0 rgba(232, 64, 64, 0);
+    }
+    50% {
+        border-color: rgba(255, 80, 80, 1);
+        box-shadow: inset 0 0 40px rgba(232, 64, 64, 0.35);
+    }
+}
+
+.sentinel-globe-border-flash {
+    animation: globe-border-flash 0.55s ease-in-out infinite;
+}
+
+.sentinel-crt-globe-panel {
+    position: relative;
+}
+
+.sentinel-crt-globe-panel::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    z-index: 50;
+    background: repeating-linear-gradient(
+        to bottom,
+        rgba(0, 0, 0, 0.18) 0px,
+        rgba(0, 0, 0, 0.18) 1px,
+        rgba(255, 255, 255, 0.03) 2px,
+        rgba(255, 255, 255, 0.03) 3px
+    );
+    mix-blend-mode: multiply;
+    animation: crt-scan-drift 6s linear infinite;
+}
+
+@keyframes crt-scan-drift {
+    0% {
+        opacity: 0.55;
+    }
+    50% {
+        opacity: 0.75;
+    }
+    100% {
+        opacity: 0.55;
+    }
+}
+
+@keyframes agent-critical-rapid {
+    0%,
+    100% {
+        box-shadow:
+            0 0 0 0 rgba(232, 64, 64, 0.9),
+            inset 0 0 20px rgba(232, 64, 64, 0.25);
+        border-color: #ff2a2a;
+    }
+    50% {
+        box-shadow:
+            0 0 0 22px rgba(232, 64, 64, 0),
+            inset 0 0 28px rgba(255, 40, 40, 0.55);
+        border-color: #ff6a6a;
+    }
+}
+
+.sentinel-agent-critical-pulse {
+    animation: agent-critical-rapid 0.45s ease-in-out infinite;
+}
+
+/* Broadcast / geopol reference — globe treatment */
+.globe-container canvas {
+    filter: saturate(0.15) brightness(0.85) contrast(1.1);
+}
+
+.globe-vm-OPTICAL .globe-container canvas {
+    filter: saturate(0.48) brightness(1.1) contrast(1.02);
+}
+
+.globe-vm-THERMAL .globe-container canvas {
+    filter: saturate(0.12) brightness(0.8) contrast(1.12);
+}
+
+.globe-vm-CLASSIFIED .globe-container canvas {
+    filter: saturate(0) brightness(0.52) contrast(1.22);
+}
+
+/* Cinematic corridor countdown — below marquee, single-line numbers */
+.countdown-container,
+.corridor-crossing-container,
+[class*='corridor-crossing'],
+[class*='corridorCrossing'],
+.threat-countdown {
+    position: fixed;
+    top: 36px;
+    left: 50%;
+    transform: translateX(-50%);
+    text-align: center;
+    bottom: unset;
+    margin: 0;
+    align-items: center;
+    white-space: nowrap;
+    z-index: 140;
+}
+
+.countdown-numbers,
+[class*='countdown-numbers'],
+[class*='countdownNumbers'] {
+    font-size: 32px;
+    white-space: nowrap;
+    letter-spacing: 4px;
+    line-height: 1.1;
+}
+
+.countdown-container .countdown-details,
+.threat-countdown .countdown-details {
+    white-space: normal;
+}
+
+.globe-vignette {
+    position: absolute;
+    inset: 0;
+    border-radius: 50%;
+    background: radial-gradient(
+        circle at center,
+        transparent 55%,
+        rgba(3, 5, 10, 0.6) 75%,
+        rgba(3, 5, 10, 0.95) 100%
+    );
+    pointer-events: none;
+}
+
+/* Restrained HUD — radar sweep + global scanline */
+@keyframes hud-radar-spin {
+    from {
+        transform: rotate(0deg);
+    }
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+.hud-radar-arm {
+    position: absolute;
+    inset: 0;
+    animation-name: hud-radar-spin;
+    animation-timing-function: linear;
+    animation-iteration-count: infinite;
+    animation-duration: 4s;
+}
+
+.hud-radar-line {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: 50%;
+    height: 1px;
+    transform: translateY(-50%);
+    transform-origin: left center;
+    background: linear-gradient(90deg, transparent, #14b8a6);
+}
+
+/* Agent particle ring (Three.js canvas) */
+.agent-ring-shell {
+    position: relative;
+    width: 160px;
+    height: 160px;
+    margin: 0 auto;
+}
+
+.agent-ring-shell::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: repeating-linear-gradient(
+        0deg,
+        transparent,
+        transparent 3px,
+        rgba(20, 184, 166, 0.04) 3px,
+        rgba(20, 184, 166, 0.04) 4px
+    );
+    pointer-events: none;
+}
+
+.agent-ring-shell--alert::after {
+    background: repeating-linear-gradient(
+            0deg,
+            transparent,
+            transparent 3px,
+            rgba(220, 38, 38, 0.06) 3px,
+            rgba(220, 38, 38, 0.06) 4px
+        ),
+        linear-gradient(180deg, rgba(220, 38, 38, 0.07), transparent 55%);
+}
+
+.agent-ring-canvas {
+    border-radius: 2px;
+}
+
+.agent-output-scroll {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(20, 184, 166, 0.35) transparent;
+}
+
+@keyframes agent-bracket-speak-pulse {
+    0% {
+        filter: brightness(1);
+        box-shadow: 0 0 0 0 rgba(20, 184, 166, 0);
+    }
+    40% {
+        filter: brightness(1.2);
+        box-shadow: 0 0 14px rgba(20, 184, 166, 0.28);
+    }
+    100% {
+        filter: brightness(1);
+        box-shadow: 0 0 0 0 rgba(20, 184, 166, 0);
+    }
+}
+
+.agent-bracket-speak-pulse {
+    animation: agent-bracket-speak-pulse 0.65s ease-out 1;
+}
+
+/* --- Sentinel globe: left agent column (ring + stacked text, no overlap) --- */
+.sentinel-left-agent-column {
+    position: fixed;
+    top: 24px;
+    left: 24px;
+    z-index: 35;
+    /* Stay clear of right-hand registry column on wide layouts; still usable on narrow viewports */
+    width: min(280px, max(216px, calc(100vw - 400px)));
+    max-height: calc(100vh - 32px);
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 6px;
+    pointer-events: none;
+}
+
+.sentinel-left-agent-column > * {
+    pointer-events: auto;
+}
+
+.sentinel-left-agent-column .sentinel-left-agent-ring {
+    position: relative;
+    top: auto;
+    left: auto;
+    flex-shrink: 0;
+}
+
+.sentinel-left-agent-column .sentinel-left-agent-label {
+    position: relative;
+    top: auto;
+    left: auto;
+    width: 100%;
+    flex-shrink: 0;
+}
+
+.sentinel-left-agent-column .sentinel-left-agent-output {
+    position: relative;
+    top: auto;
+    left: auto;
+    width: 100%;
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-x: hidden;
+    overflow-y: auto;
+    z-index: 1;
+}
+
+/* Ring size unchanged (do not resize). */
+.sentinel-left-agent-ring .agent-ring-shell {
+    width: 160px;
+    height: 160px;
+}
+
+/* Standalone selectors kept for class-name search / older markup; primary layout is `.sentinel-left-agent-column`. */
+.sentinel-left-agent-ring {
+    position: fixed;
+    top: 24px;
+    left: 24px;
+    z-index: 30;
+}
+
+.agent-label,
+.sentinel-left-agent-label,
+[class*='agent-label'],
+[class*='agentLabel'],
+[class*='sentinel-label'] {
+    position: fixed;
+    top: 500px;
+    left: 24px;
+    width: 280px;
+    z-index: 30;
+}
+
+.sentinel-left-agent-output {
+    position: fixed;
+    top: 548px;
+    left: 24px;
+    width: 280px;
+    max-height: 140px;
+    overflow-x: hidden;
+    overflow-y: auto;
+    z-index: 30;
+}
+
+/* Below ring — clears ~300px tall ring area from layout screenshots. */
+.sentinel-left-comms-log,
+.comms-log,
+[class*='comms-log'],
+[class*='commsLog'] {
+    position: fixed;
+    top: 320px;
+    left: 24px;
+    width: 280px;
+    max-height: 160px;
+    overflow: hidden;
+    z-index: 30;
+}
+
+/* Orbit suggestion: right column, stacked above mission brief (bottom-right). */
+.orbit-suggestion-button,
+.orbit-suggestion-cta-sentinel,
+[class*='orbit-suggestion']:not(.orbit-suggestion-card),
+[class*='orbitSuggestion'] {
+    position: fixed;
+    bottom: 330px;
+    right: 24px;
+    z-index: 60;
+}
+
+.orbit-suggestion-card {
+    position: fixed;
+    bottom: 370px;
+    right: 24px;
+    width: 340px;
+    max-width: min(380px, calc(100vw - 48px));
+    max-height: min(30vh, 240px);
+    overflow-y: auto;
+    z-index: 58;
+}
+
+/* Globe bottom-left: toggles on the edge; legend above (clears agent output). */
+.legend-row,
+.globe-legend-row,
+[class*='legend-row'],
+[class*='legendRow'],
+[class*='threat-legend'],
+[class*='threatLegend'] {
+    position: fixed;
+    bottom: 60px;
+    left: 24px;
+    max-width: min(520px, 92vw);
+    z-index: 40;
+}
+
+.camera-mode-toggles,
+.globe-camera-mode-toggles,
+[class*='camera-mode'],
+[class*='cameraMode'],
+[class*='view-mode'],
+[class*='viewMode'] {
+    position: fixed;
+    bottom: 24px;
+    left: 24px;
+    max-width: min(520px, 92vw);
+    z-index: 40;
+}
+
+/* Globe top-right: vertical stack — Space weather → Threat → Registry */
+.space-weather-search-button,
+[class*='space-weather-search'],
+[class*='spaceWeatherSearch'] {
+    position: fixed;
+    top: 24px;
+    right: 24px;
+    z-index: 61;
+}
+
+.threat-level-badge,
+[class*='threat-level'],
+[class*='threatLevel'] {
+    position: fixed;
+    top: 110px;
+    right: 24px;
+    z-index: 40;
+}
+
+.orbital-registry,
+[class*='orbital-registry'],
+[class*='orbitalRegistry'] {
+    position: fixed;
+    top: 180px;
+    right: 24px;
+    width: 340px;
+    max-width: min(340px, calc(100vw - 48px));
+    z-index: 30;
+}
+
+/* Bottom-right — clears orbital registry column above */
+.mission-brief,
+[class*='mission-brief'],
+[class*='missionBrief'] {
+    position: fixed;
+    bottom: 24px;
+    right: 24px;
+    width: 340px;
+    max-width: min(340px, calc(100vw - 48px));
+    max-height: 280px;
+    overflow-x: hidden;
+    overflow-y: auto;
+    background: rgba(7, 14, 26, 0.95);
+    border: 0.5px solid #1dd4bf;
+    padding: 14px 16px;
+    font-family: 'Courier New', ui-monospace, monospace;
+    font-size: 10px;
+    z-index: 500;
+    box-sizing: border-box;
+}
+

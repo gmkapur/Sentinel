@@ -1,4 +1,5 @@
 import { useEffect } from 'react';
+import { USE_TEMP_DATA_ONLY } from '../config/dataSource';
 import { getSocket, disconnectSocket } from '../services/socket';
 import { useMissionStore } from '../stores/missionStore';
 import type {
@@ -12,6 +13,10 @@ import type {
 
 export function useSocket(): void {
     useEffect(() => {
+        if (USE_TEMP_DATA_ONLY) {
+            return;
+        }
+
         const socket = getSocket();
         const {
             setConnected,

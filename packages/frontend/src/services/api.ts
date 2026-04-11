@@ -1,10 +1,10 @@
+import { USE_TEMP_DATA_ONLY } from '../config/dataSource';
+import type { OrbitSuggestionApiResponse } from '../types/orbitSuggestion';
 import type {
     RiskState,
     SpaceWeatherState,
     MissionBrief,
     SatPosition,
-    SatRiskBreakdown,
-    SatRiskSummary,
     AlertRecord,
 } from '@sentinel/shared/src/types';
 
@@ -30,26 +30,75 @@ async function fetchJson<T>(url: string, options?: RequestInit): Promise<T> {
 }
 
 export const api = {
-    getStatus: () => fetchJson<StatusResponse>('/api/v1/status'),
-    getSatellites: () => fetchJson<SatellitesResponse>('/api/v1/satellites'),
-    getAlerts: () => fetchJson<AlertRecord[]>('/api/v1/alerts'),
-    getSpaceWeather: () => fetchJson<SpaceWeatherState>('/api/v1/space-weather'),
-    getBrief: () => fetchJson<MissionBrief>('/api/v1/agent/brief'),
+    getStatus: () => fetchJson<StatusResponse>('/api/status'),
+    getSatellites: () => fetchJson<SatellitesResponse>('/api/satellites'),
+    getAlerts: () => fetchJson<AlertRecord[]>('/api/alerts'),
+    getSpaceWeather: () => fetchJson<SpaceWeatherState>('/api/space-weather'),
+    getBrief: () => fetchJson<MissionBrief>('/api/agent/brief'),
     regenerateBrief: () =>
-        fetchJson<MissionBrief>('/api/v1/agent/brief', { method: 'POST' }),
-    getAgentHealth: () => fetchJson<any>('/api/v1/agent/health'),
-    getSatelliteRisk: (noradId: number) =>
-        fetchJson<SatRiskBreakdown>(`/api/v1/satellites/${noradId}/risk`),
-    getTopRiskSatellites: (count = 20) =>
-        fetchJson<{ count: number; satellites: SatRiskSummary[] }>(
-            `/api/v1/satellites/top-risk?count=${count}`,
-        ),
-    getRiskStats: () =>
-        fetchJson<{
-            total: number;
-            byLevel: Record<string, number>;
-            byRegime: Record<string, number>;
-            topRisk: SatRiskSummary[];
-            timestamp: string;
-        }>('/api/v1/satellites/risk-stats'),
+        fetchJson<MissionBrief>('/api/agent/brief', { method: 'POST' }),
+    getAgentHealth: () => fetchJson<any>('/api/agent/health'),
+    postOrbitSuggestion: async (body: unknown): Promise<OrbitSuggestionApiResponse> => {
+        if (USE_TEMP_DATA_ONLY) {
+            return {
+                suggestion: {
+                    recommendation:
+                        'Raise altitude with a prograde burn to increase separation from the modeled threat corridor while monitoring conjunctions.',
+                    maneuver: {
+                        type: 'altitude_raise',
+                        deltaAltitudeKm: 95,
+                        deltaInclination: 0,
+                        burnDurationSeconds: 38,
+                        thrustDirection: 'prograde',
+                        urgencyHours: 6,
+                    },
+                    newOrbit: {
+                        altitudeKm: 645,
+                        inclination: 53,
+                        safetyMarginKm: 220,
+                    },
+                    costOfManeuver: 'LOW  ··  ~2% propellant reserve (offline demo)',
+                    riskIfIgnored: 'Continued corridor exposure increases charging and SEU probability.',
+                },
+                newOrbit: {
+                    altitudeKm: 645,
+                    inclination: 53,
+                    safetyMarginKm: 220,
+                },
+            };
+        }
+        const res = await fetch('/api/orbit-suggestion', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+        });
+        const data = (await res.json()) as OrbitSuggestionApiResponse & { error?: string };
+        if (!res.ok) {
+            throw new Error(data.error || `Orbit suggestion failed: ${res.status}`);
+        }
+        return data;
+    },
+
+    postCall: async (body: { to?: string; test?: boolean }) => {
+        if (USE_TEMP_DATA_ONLY) {
+            return { ok: true as const, sid: 'TEMP_DATA_NO_CALL' };
+        }
+
+        const res = await fetch('/api/call', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+        });
+        let data: { ok?: boolean; sid?: string; error?: string } = {};
+        try {
+            data = (await res.json()) as typeof data;
+        }
+        catch {
+            /* non-JSON error body */
+        }
+        if (!res.ok) {
+            throw new Error(data.error || `Call failed: ${res.status}`);
+        }
+        return data as { ok: boolean; sid?: string };
+    },
 };

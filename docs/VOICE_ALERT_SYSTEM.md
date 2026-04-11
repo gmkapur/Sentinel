@@ -137,7 +137,7 @@ Content-Type: application/json
     "dynamic_variables": {
       "risk_level": "CRITICAL",
       "risk_score": "82",
-      "primary_threat": "X2.1 solar flare with earth-directed CME, estimated arrival in 14 hours",
+      "primary_threat": "X2.1 solar flare with CME on intercept with orbital plane, corridor crossing in 14 hours",
       "recommendation": "NO-GO",
       "action": "Initiate drag-compensation maneuver for LEO assets within 6 hours",
       "dashboard_url": "https://orbit-sentinel.app/dashboard"
@@ -336,8 +336,8 @@ DASHBOARD_URL=https://orbit-sentinel.app
 
 AI: "This is Orbit Sentinel, your automated mission risk system. We are currently
     at CRITICAL threat level, risk score 82 out of 100. An X2.1 solar flare with
-    an earth-directed coronal mass ejection has been detected, with estimated arrival
-    in 14 hours. Our recommendation is NO-GO: initiate drag-compensation maneuver
+    a coronal mass ejection on intercept with the satellite corridor has been detected,
+    with corridor crossing in 14 hours. Our recommendation is NO-GO: initiate drag-compensation maneuver
     for LEO assets within 6 hours. Full details and maneuver windows are available
     on your Orbit Sentinel dashboard. Do you have any questions?"
 
@@ -350,7 +350,7 @@ AI: "Based on current orbital data, your LEO satellites on the sunlit side —
 
 Operator: "Got it, thanks."
 
-AI: "Understood. Stay safe. Orbit Sentinel will continue monitoring and will
+AI: "Understood. Orbit Sentinel will continue monitoring and will
     alert you if conditions change. Goodbye."
 
 [Call ends]

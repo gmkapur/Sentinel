@@ -83,6 +83,10 @@ export function shouldGenerateBrief(
 
 const SYSTEM_PROMPT = `You are a senior space weather analyst for satellite mission operations at a space situational awareness center. Given the current space weather data and risk assessment, generate a structured mission brief for satellite operators.
 
+Language rules (mandatory):
+- Describe effects only on satellites, payloads, constellations, and orbital corridors.
+- Never frame the threat as harming people on the ground, surface infrastructure, power grids, aviation passengers, or maritime traffic; if you mention GPS or comms, describe satellite signal output and operator-facing service degradation, not Earth-surface disasters.
+
 Your analysis should consider:
 - Compound threats: simultaneous M5+ flares with Kp >= 5 indicate CME-driven storm confirmation
 - Kp >= 7 with high proton flux means severe radiation plus atmospheric drag risk for LEO assets
