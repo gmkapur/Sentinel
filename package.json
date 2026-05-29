@@ -16,7 +16,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
-    "postinstall": "husky"
+    "postinstall": "husky || true"
   },
   "devDependencies": {
     "@eslint/js": "^9.25.0",
