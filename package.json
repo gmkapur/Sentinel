@@ -4,6 +4,9 @@
   "workspaces": [
     "packages/*"
   ],
+  "installConfig": {
+    "hoistingLimits": "workspaces"
+  },
   "scripts": {
     "lint": "eslint packages/*/src/**/*.ts packages/*/src/**/*.tsx",
     "lint:fix": "eslint --fix packages/*/src/**/*.ts packages/*/src/**/*.tsx",
